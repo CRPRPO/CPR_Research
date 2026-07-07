@@ -23,6 +23,9 @@ let rafId = null;
 let lastVideoTime = -1;
 let poseFrameCount = 0;
 let poseFpsStart = 0;
+let latestSelectedPose = null;
+let latestPoseStatusText = '尚未啟動';
+let canvasCaptureTrack = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -285,30 +288,70 @@ function selectBestPose(results) {
   return { ...best, count: poses.length, rejectedHorizontal };
 }
 
-function drawPose(results) {
-  if (!els.showSkeleton.checked) return;
+function updatePoseSelection(results) {
+  if (!els.showSkeleton.checked) {
+    latestSelectedPose = null;
+    latestPoseStatusText = "骨架顯示關閉";
+    setText(els.diagPoseStatus, latestPoseStatusText);
+    return;
+  }
 
   const selected = selectBestPose(results);
   if (!selected || !selected.landmarks) {
-    setText(els.diagPoseStatus, "未偵測到人體");
+    latestSelectedPose = null;
+    latestPoseStatusText = "未偵測到人體";
+    setText(els.diagPoseStatus, latestPoseStatusText);
     return;
   }
 
   if (selected.axis?.horizontalRejected) {
+    latestSelectedPose = null;
     const angleText = selected.axis?.angle != null ? `，肩髖角度 ${Number(selected.axis.angle.toFixed(1))}°` : "";
-    setText(els.diagPoseStatus, `已排除平躺骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}${angleText}）`);
+    latestPoseStatusText = `已排除平躺骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}${angleText}）`;
+    setText(els.diagPoseStatus, latestPoseStatusText);
     return;
   }
 
   if (selected.score < 1.5) {
-    setText(els.diagPoseStatus, `疑似非受試者骨架，已忽略（候選 ${selected.count}）`);
+    latestSelectedPose = null;
+    latestPoseStatusText = `疑似非受試者骨架，已忽略（候選 ${selected.count}）`;
+    setText(els.diagPoseStatus, latestPoseStatusText);
     return;
   }
 
+  latestSelectedPose = selected;
   const angleText = selected.axis?.angle != null ? `，肩髖角度 ${Number(selected.axis.angle.toFixed(1))}°` : "";
-  setText(els.diagPoseStatus, `已偵測到受試者骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}，分數 ${Number(selected.score.toFixed(1))}${angleText}）`);
-  drawSide(selected.landmarks, "L", "#00e5ff");
-  drawSide(selected.landmarks, "R", "#ffeb3b");
+  latestPoseStatusText = `已偵測到受試者骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}，分數 ${Number(selected.score.toFixed(1))}${angleText}）`;
+  setText(els.diagPoseStatus, latestPoseStatusText);
+}
+
+function drawSelectedPose() {
+  if (!els.showSkeleton.checked || !latestSelectedPose?.landmarks) return;
+  drawSide(latestSelectedPose.landmarks, "L", "#00e5ff");
+  drawSide(latestSelectedPose.landmarks, "R", "#ffeb3b");
+}
+
+function drawCanvasRecordingMarker() {
+  // 這個小標記直接畫在 Canvas 內，可確認下載影片真的來自 Canvas 骨架疊圖。
+  if (!isRecording) return;
+  ctx.save();
+  ctx.font = "bold 22px Arial";
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(12, els.canvas.height - 48, 270, 36);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("SKELETON OVERLAY REC", 24, els.canvas.height - 22);
+  ctx.restore();
+}
+
+function renderOutputFrame() {
+  drawBase();
+  drawSelectedPose();
+  drawCanvasRecordingMarker();
+
+  // 若使用 canvas.captureStream()，主動要求輸出目前這一幀，避免錄到剛清空或未畫骨架的瞬間。
+  if (canvasCaptureTrack && typeof canvasCaptureTrack.requestFrame === "function") {
+    try { canvasCaptureTrack.requestFrame(); } catch {}
+  }
 }
 
 function showCapabilities(track) {
@@ -422,18 +465,18 @@ function startPoseLoop() {
   poseFrameCount = 0;
   poseFpsStart = performance.now();
   lastVideoTime = -1;
+  latestSelectedPose = null;
 
   const loop = () => {
     if (!poseRunning || !mediaStream || !poseLandmarker) return;
 
     if (els.video.readyState >= 2 && els.video.videoWidth > 0 && els.video.videoHeight > 0) {
-      drawBase();
-
       if (els.video.currentTime !== lastVideoTime) {
         lastVideoTime = els.video.currentTime;
         try {
           const results = poseLandmarker.detectForVideo(els.video, performance.now());
-          drawPose(results);
+          updatePoseSelection(results);
+
           poseFrameCount++;
           const now = performance.now();
           if (now - poseFpsStart >= 1000) {
@@ -443,11 +486,17 @@ function startPoseLoop() {
           }
         } catch (e) {
           console.warn("PoseLandmarker 偵測錯誤:", e);
+          latestSelectedPose = null;
           setText(els.diagPoseStatus, "骨架偵測錯誤");
           setText(els.diagDetails, String(e.stack || e.message || e));
         }
       }
+
+      // V2.0.7：每一個畫面迴圈都用「原始影像 + 最新骨架」重畫 Canvas。
+      // 這可避免 captureStream 在骨架畫上去之前擷取到只有原始影像的畫面。
+      renderOutputFrame();
     }
+
     rafId = requestAnimationFrame(loop);
   };
   loop();
@@ -457,6 +506,8 @@ function stopPoseLoop() {
   poseRunning = false;
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
+  latestSelectedPose = null;
+  canvasCaptureTrack = null;
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
   setText(els.diagPoseStatus, "骨架偵測已停止");
   setText(els.diagPoseFps, "尚未啟動");
@@ -552,8 +603,10 @@ function startRecording() {
 function beginRecording() {
   recordedChunks = [];
   const fps = Math.round(mediaStream.getVideoTracks()[0].getSettings().frameRate || 30);
+  renderOutputFrame();
   const recordStream = els.canvas.captureStream(Math.max(15, Math.min(30, fps)));
-  // V2.0.6：優先使用 VP8。Windows 內建播放器對 VP9 WebM 較容易失敗；
+  canvasCaptureTrack = recordStream.getVideoTracks()[0] || null;
+  // V2.0.7：優先使用 VP8。Windows 內建播放器對 VP9 WebM 較容易失敗；
   // 若仍無法用 Windows 內建播放器開啟，請先用 Chrome 或 VLC 播放確認。
   const preferredTypes = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
   const supportedType = preferredTypes.find(type => MediaRecorder.isTypeSupported(type));
@@ -574,6 +627,7 @@ function beginRecording() {
     setPrep("");
     status(els.recordingStatus, "✓ 骨架疊圖影片錄製已完成", "success");
     status(els.downloadStatus, "✓ 可以下載骨架疊圖影片", "success");
+    canvasCaptureTrack = null;
     playFinishBeep();
   };
 
@@ -673,7 +727,7 @@ document.addEventListener("DOMContentLoaded", () => {
   els.timerOverlay.textContent = fmtTime(selectedDuration());
   updateStatusOverlay("待機");
   setPrep("");
-  status(els.cameraStatus, "請啟動攝影機。V2.0.6 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
+  status(els.cameraStatus, "請啟動攝影機。V2.0.7 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
   status(els.recordingStatus, "準備就緒", "info");
   status(els.downloadStatus, "", "info");
   refreshCameraList();

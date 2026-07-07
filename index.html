@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CPR 研究用網頁系統 V2.0.6</title>
+  <title>CPR 研究用網頁系統 V2.0.7</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="container">
-  <h1>CPR 研究用網頁系統 V2.0.6</h1>
+  <h1>CPR 研究用網頁系統 V2.0.7</h1>
 
   <section>
     <h2>設定參數</h2>
@@ -61,8 +61,8 @@
     </div>
 
     <div class="warning">
-      <strong>⚠️ V2.0.6 改用 MediaPipe Tasks Vision PoseLandmarker。</strong><br>
-      這版改用 MediaPipe Tasks Vision，並加入「平躺骨架排除」：若肩髖主軸接近地板水平，會優先視為無效骨架，以降低誤抓 CPR 安妮的機率。下載影片會包含骨架疊圖。
+      <strong>⚠️ V2.0.7 改用 MediaPipe Tasks Vision PoseLandmarker。</strong><br>
+      這版改用 MediaPipe Tasks Vision，並將畫面渲染改為「每一幀先畫攝影機，再畫最新骨架，再送入錄影串流」，避免錄影只錄到原始畫面、沒有骨架。
     </div>
 
     <div class="video-container">
@@ -123,6 +123,6 @@
   </section>
 </div>
 
-<script type="module" src="app.js?v=20260707-v206"></script>
+<script type="module" src="app.js?v=20260707-v207"></script>
 </body>
 </html>
