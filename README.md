@@ -1,46 +1,63 @@
 # CPR_Research
 
-## CPR 研究用網頁系統 V2.0.4
+## CPR 研究用網頁系統 V2.0.6
 
-V2.0.4 修正 V2.0.3 的 MediaPipe Tasks Vision CDN 404 問題。
+V2.0.6 針對 V2.0.5 的場景問題再往前進一步：
 
----
-
-## 修正重點
-
-V2.0.3 使用：
-
-```javascript
-https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22
-```
-
-該路徑可能回傳 404，造成 `app.js` module import 失敗，整個 JavaScript 不執行，因此頁面無法列出攝影機、無法啟動骨架。
-
-V2.0.4 改為：
-
-```javascript
-https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs
-https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm
-```
-
-並將 index.html 的 cache busting 改成：
-
-```html
-<script type="module" src="app.js?v=20260707-v204"></script>
-```
+- 降低誤抓 CPR 安妮
+- 保留 VP8 優先錄影
+- 將「平躺骨架」視為無效候選
 
 ---
 
-## 功能保留
+## 本版核心邏輯
 
-- 自動模式
-- 640 × 480 / 30fps
-- 960 × 540 / 30fps
-- 1280 × 720 / 30fps
-- MediaPipe Tasks Vision PoseLandmarker
+CPR 安妮通常平躺在地板上，因此其骨架主軸通常接近水平。
+
+V2.0.6 新增「肩髖主軸角度」判斷：
+
+1. 先取左右肩膀中心
+2. 再取左右髖部中心
+3. 計算肩膀中心 → 髖部中心的主軸角度
+4. 若骨架主軸接近水平（與地板近平行），則判定為平躺骨架
+5. 平躺骨架直接降分並優先排除
+
+### 排除規則
+
+若肩髖主軸角度距離水平線在 28° 內：
+
+- 視為平躺骨架
+- 直接排除，不畫出來
+- 診斷欄位會顯示「已排除平躺骨架」
+
+---
+
+## 仍保留的邏輯
+
+- `numPoses: 2`
+- 優先選擇肩、肘、腕、髖較完整的候選骨架
+- VP8 優先 WebM 錄影
 - Canvas 骨架疊圖錄影
-- 30 秒 / 1 分鐘 / 2 分鐘錄影
-- WebM 下載
+- 640×480 / 30fps
+- 960×540 / 30fps
+- 1280×720 / 30fps
+
+---
+
+## 建議測試方式
+
+1. 讓受試者跪在安妮側邊
+2. 安妮完整入鏡也沒關係
+3. 先用 960×540 / 30fps
+4. 啟動攝影機與骨架
+5. 看診斷欄是否顯示：
+   - 已偵測到受試者骨架
+   - 或已排除平躺骨架
+
+如果仍偶爾抓到安妮，下一步建議做 V2.0.7：
+
+- 加入「ROI 偵測區域」
+- 只偵測畫面左半邊 / 右半邊 / 自訂框選區
 
 ---
 
@@ -48,8 +65,12 @@ https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm
 
 ```bash
 git add index.html style.css app.js README.md
-git commit -m "V2.0.4 fix MediaPipe Tasks Vision CDN path"
+git commit -m "V2.0.6 reject horizontal body axis to reduce manikin false detection"
 git push
 ```
 
-部署後請用 Ctrl + F5 強制重新整理。確認 Console 裡不再出現 `app.js?v=20260707-v203`。
+部署後請用 Ctrl + F5 強制重新整理，確認載入：
+
+```text
+app.js?v=20260707-v206
+```

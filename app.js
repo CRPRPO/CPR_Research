@@ -185,16 +185,130 @@ function drawSide(lms, side, color) {
   if (ok(h)) drawLandmark(h, color, `${side}髖`);
 }
 
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function computeBodyAxis(lms) {
+  const ls = lms[11], rs = lms[12], lh = lms[23], rh = lms[24];
+  if (!(ok(ls) && ok(rs) && ok(lh) && ok(rh))) {
+    return { hasAxis: false, angle: null, horizontalRejected: false, horizontalDistance: null };
+  }
+
+  const shoulderCenter = midpoint(ls, rs);
+  const hipCenter = midpoint(lh, rh);
+  const dx = hipCenter.x - shoulderCenter.x;
+  const dy = hipCenter.y - shoulderCenter.y;
+  let angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+  if (angle > 180) angle %= 180;
+  const horizontalDistance = Math.min(angle, Math.abs(180 - angle));
+  const horizontalRejected = horizontalDistance <= 28;
+
+  return {
+    hasAxis: true,
+    angle,
+    horizontalDistance,
+    horizontalRejected,
+    shoulderCenter,
+    hipCenter
+  };
+}
+
+function landmarkScore(lms) {
+  if (!lms) return { score: -999, axis: { hasAxis: false, horizontalRejected: false } };
+
+  const keyIndexes = [11, 12, 13, 14, 15, 16, 23, 24];
+  const armIndexes = [13, 14, 15, 16];
+  const hipIndexes = [23, 24];
+
+  let score = 0;
+  keyIndexes.forEach(i => {
+    const lm = lms[i];
+    if (ok(lm)) score += (lm.visibility ?? 0.5);
+    else score -= 0.6;
+  });
+
+  armIndexes.forEach(i => {
+    const lm = lms[i];
+    if (ok(lm)) score += 1.2;
+    else score -= 1.0;
+  });
+
+  hipIndexes.forEach(i => {
+    const lm = lms[i];
+    if (ok(lm)) score += 1.0;
+    else score -= 1.0;
+  });
+
+  const visible = lms.filter(ok);
+  if (visible.length >= 4) {
+    const ys = visible.map(p => p.y);
+    const xs = visible.map(p => p.x);
+    const height = Math.max(...ys) - Math.min(...ys);
+    const width = Math.max(...xs) - Math.min(...xs);
+    score += height * 2.0 + width * 0.6;
+  }
+
+  const axis = computeBodyAxis(lms);
+  if (axis.hasAxis) {
+    // 接近垂直或斜向下的肩髖主軸較符合施作者姿勢
+    score += 1.2;
+    if (axis.horizontalRejected) {
+      score -= 10.0;
+    } else {
+      score += 2.0;
+    }
+  } else {
+    score -= 0.8;
+  }
+
+  return { score, axis };
+}
+
+function selectBestPose(results) {
+  const poses = results?.landmarks || [];
+  if (!poses.length) return null;
+
+  let best = null;
+  let bestScore = -999;
+  let rejectedHorizontal = 0;
+
+  poses.forEach(lms => {
+    const scored = landmarkScore(lms);
+    if (scored.axis.horizontalRejected) rejectedHorizontal += 1;
+    if (scored.score > bestScore) {
+      best = { landmarks: lms, score: scored.score, axis: scored.axis };
+      bestScore = scored.score;
+    }
+  });
+
+  return { ...best, count: poses.length, rejectedHorizontal };
+}
+
 function drawPose(results) {
   if (!els.showSkeleton.checked) return;
-  const lms = results?.landmarks?.[0];
-  if (!lms) {
+
+  const selected = selectBestPose(results);
+  if (!selected || !selected.landmarks) {
     setText(els.diagPoseStatus, "未偵測到人體");
     return;
   }
-  setText(els.diagPoseStatus, "已偵測到人體骨架");
-  drawSide(lms, "L", "#00e5ff");
-  drawSide(lms, "R", "#ffeb3b");
+
+  if (selected.axis?.horizontalRejected) {
+    const angleText = selected.axis?.angle != null ? `，肩髖角度 ${Number(selected.axis.angle.toFixed(1))}°` : "";
+    setText(els.diagPoseStatus, `已排除平躺骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}${angleText}）`);
+    return;
+  }
+
+  if (selected.score < 1.5) {
+    setText(els.diagPoseStatus, `疑似非受試者骨架，已忽略（候選 ${selected.count}）`);
+    return;
+  }
+
+  const angleText = selected.axis?.angle != null ? `，肩髖角度 ${Number(selected.axis.angle.toFixed(1))}°` : "";
+  setText(els.diagPoseStatus, `已偵測到受試者骨架（候選 ${selected.count}，水平排除 ${selected.rejectedHorizontal}，分數 ${Number(selected.score.toFixed(1))}${angleText}）`);
+  drawSide(selected.landmarks, "L", "#00e5ff");
+  drawSide(selected.landmarks, "R", "#ffeb3b");
 }
 
 function showCapabilities(track) {
@@ -253,7 +367,7 @@ async function initPoseLandmarker() {
       delegate: "GPU"
     },
     runningMode: "VIDEO",
-    numPoses: 1,
+    numPoses: 2,
     minPoseDetectionConfidence: 0.5,
     minPosePresenceConfidence: 0.5,
     minTrackingConfidence: 0.5
@@ -439,14 +553,16 @@ function beginRecording() {
   recordedChunks = [];
   const fps = Math.round(mediaStream.getVideoTracks()[0].getSettings().frameRate || 30);
   const recordStream = els.canvas.captureStream(Math.max(15, Math.min(30, fps)));
-  let options = { mimeType: "video/webm;codecs=vp9" };
-  if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = "video/webm;codecs=vp8";
-  if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = "video/webm";
+  // V2.0.6：優先使用 VP8。Windows 內建播放器對 VP9 WebM 較容易失敗；
+  // 若仍無法用 Windows 內建播放器開啟，請先用 Chrome 或 VLC 播放確認。
+  const preferredTypes = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
+  const supportedType = preferredTypes.find(type => MediaRecorder.isTypeSupported(type));
+  const options = supportedType ? { mimeType: supportedType } : {};
 
   try { mediaRecorder = new MediaRecorder(recordStream, options); }
   catch { mediaRecorder = new MediaRecorder(recordStream); }
 
-  currentMimeType = mediaRecorder.mimeType || options.mimeType || "瀏覽器預設";
+  currentMimeType = mediaRecorder.mimeType || supportedType || "瀏覽器預設";
   setText(els.diagMimeType, currentMimeType);
 
   mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
@@ -461,7 +577,7 @@ function beginRecording() {
     playFinishBeep();
   };
 
-  mediaRecorder.start();
+  mediaRecorder.start(1000);
   recordingStartTime = Date.now();
   isRecording = true;
   isPreparing = false;
@@ -557,7 +673,7 @@ document.addEventListener("DOMContentLoaded", () => {
   els.timerOverlay.textContent = fmtTime(selectedDuration());
   updateStatusOverlay("待機");
   setPrep("");
-  status(els.cameraStatus, "請啟動攝影機。V2.0.4 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
+  status(els.cameraStatus, "請啟動攝影機。V2.0.6 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
   status(els.recordingStatus, "準備就緒", "info");
   status(els.downloadStatus, "", "info");
   refreshCameraList();
