@@ -1,7 +1,7 @@
 import {
   PoseLandmarker,
   FilesetResolver
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
 let mediaStream = null;
 let mediaRecorder = null;
@@ -246,7 +246,7 @@ function buildVideoConstraints() {
 async function initPoseLandmarker() {
   if (poseLandmarker) return poseLandmarker;
   setText(els.diagPoseStatus, "MediaPipe Tasks Vision 載入中...");
-  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm");
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm");
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
@@ -557,7 +557,7 @@ document.addEventListener("DOMContentLoaded", () => {
   els.timerOverlay.textContent = fmtTime(selectedDuration());
   updateStatusOverlay("待機");
   setPrep("");
-  status(els.cameraStatus, "請啟動攝影機。V2.0.3 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
+  status(els.cameraStatus, "請啟動攝影機。V2.0.4 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
   status(els.recordingStatus, "準備就緒", "info");
   status(els.downloadStatus, "", "info");
   refreshCameraList();

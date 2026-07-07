@@ -1,49 +1,55 @@
 # CPR_Research
 
-## CPR 研究用網頁系統 V2.0.3
+## CPR 研究用網頁系統 V2.0.4
 
-V2.0.3 改用 MediaPipe Tasks Vision `PoseLandmarker`，不再使用舊版 `@mediapipe/pose` 的 `Pose` 物件。
+V2.0.4 修正 V2.0.3 的 MediaPipe Tasks Vision CDN 404 問題。
 
 ---
 
-## 為什麼做 V2.0.3
+## 修正重點
 
-V2.0.2 在 Console 出現：
+V2.0.3 使用：
 
-```text
-GL_INVALID_FRAMEBUFFER_OPERATION: Framebuffer is incomplete: Attachment has zero size.
-RuntimeError: memory access out of bounds
+```javascript
+https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22
 ```
 
-這代表舊版 MediaPipe Pose 的 wasm/GPU 流程不穩，且可能在影片或 Canvas 尺寸尚未有效時被呼叫。
+該路徑可能回傳 404，造成 `app.js` module import 失敗，整個 JavaScript 不執行，因此頁面無法列出攝影機、無法啟動骨架。
 
-V2.0.3 改用 Tasks Vision，並加入：
+V2.0.4 改為：
 
-- videoWidth/videoHeight 檢查
-- Canvas 尺寸檢查
-- `detectForVideo()` 同步偵測流程
-- 只在影片有效幀時偵測
-- 錄製 Canvas 骨架疊圖影片
+```javascript
+https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs
+https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm
+```
+
+並將 index.html 的 cache busting 改成：
+
+```html
+<script type="module" src="app.js?v=20260707-v204"></script>
+```
 
 ---
 
-## 畫質模式
+## 功能保留
 
 - 自動模式
 - 640 × 480 / 30fps
 - 960 × 540 / 30fps
 - 1280 × 720 / 30fps
-
-建議先測 960 × 540 / 30fps。
+- MediaPipe Tasks Vision PoseLandmarker
+- Canvas 骨架疊圖錄影
+- 30 秒 / 1 分鐘 / 2 分鐘錄影
+- WebM 下載
 
 ---
 
-## Git 版本建議
+## Git 指令
 
 ```bash
 git add index.html style.css app.js README.md
-git commit -m "V2.0.3 switch to MediaPipe Tasks Vision PoseLandmarker"
+git commit -m "V2.0.4 fix MediaPipe Tasks Vision CDN path"
 git push
 ```
 
-部署後請用 Ctrl + F5 強制重新整理。
+部署後請用 Ctrl + F5 強制重新整理。確認 Console 裡不再出現 `app.js?v=20260707-v203`。
