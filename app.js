@@ -1,79 +1,564 @@
-let mediaStream=null,recordStream=null,mediaRecorder=null,recordedChunks=[],recordingStartTime=null,timerInterval=null,prepInterval=null,recordingTimeout=null,isRecording=false,isPreparing=false,currentRecordingDuration=120000,lastRecordingLabel='120s',audioContext=null,currentRecorderMimeType='尚未錄影';
-let pose=null,poseRunning=false,poseRafId=null,poseFrameCount=0,poseFpsLastTime=0,poseFps=0,latestPoseLandmarks=null,latestPoseStatus='尚未啟動';
+import {
+  PoseLandmarker,
+  FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
 
-const RECORDING_LENGTHS={'30':30000,'60':60000,'120':120000};
-const PREP_COUNTDOWN_SECONDS=10;
-const QUALITY_MODES={
- auto:{label:'自動模式',constraints:{}},
- '640x480_30':{label:'640 × 480 / 30fps',constraints:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:30}}},
- '960x540_30':{label:'960 × 540 / 30fps',constraints:{width:{ideal:960},height:{ideal:540},frameRate:{ideal:30,max:30}}},
- '1280x720_30':{label:'1280 × 720 / 30fps',constraints:{width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}}
+let mediaStream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingStartTime = null;
+let timerInterval = null;
+let prepInterval = null;
+let recordingTimeout = null;
+let isRecording = false;
+let isPreparing = false;
+let audioContext = null;
+let currentDuration = 120000;
+let lastRecordingLabel = "120s";
+let currentMimeType = "尚未錄影";
+
+let poseLandmarker = null;
+let poseRunning = false;
+let rafId = null;
+let lastVideoTime = -1;
+let poseFrameCount = 0;
+let poseFpsStart = 0;
+
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  subjectCode: $("subjectCode"),
+  testPhase: $("testPhase"),
+  cameraSelect: $("cameraSelect"),
+  qualityMode: $("qualityMode"),
+  refreshCamerasBtn: $("refreshCamerasBtn"),
+  startCameraBtn: $("startCameraBtn"),
+  stopCameraBtn: $("stopCameraBtn"),
+  startRecordingBtn: $("startRecordingBtn"),
+  stopRecordingBtn: $("stopRecordingBtn"),
+  downloadBtn: $("downloadBtn"),
+  video: $("videoPreview"),
+  canvas: $("outputCanvas"),
+  showSkeleton: $("showSkeleton"),
+  statusOverlay: $("videoStatusOverlay"),
+  timerOverlay: $("videoTimerOverlay"),
+  prepOverlay: $("preCountdownOverlay"),
+  timerDisplay: $("timerDisplay"),
+  prepCountdown: $("prepCountdown"),
+  cameraStatus: $("cameraStatus"),
+  recordingStatus: $("recordingStatus"),
+  downloadStatus: $("downloadStatus"),
+  diagCameraLabel: $("diagCameraLabel"),
+  diagRequestedMode: $("diagRequestedMode"),
+  diagResolution: $("diagResolution"),
+  diagFrameRate: $("diagFrameRate"),
+  diagAspectRatio: $("diagAspectRatio"),
+  diagMimeType: $("diagMimeType"),
+  diagPoseEngine: $("diagPoseEngine"),
+  diagPoseStatus: $("diagPoseStatus"),
+  diagPoseFps: $("diagPoseFps"),
+  diagRecordSource: $("diagRecordSource"),
+  diagDetails: $("diagDetails"),
+  diagRecommendation: $("diagRecommendation")
 };
 
-const $=id=>document.getElementById(id);
-const subjectCodeInput=$('subjectCode'),testPhaseSelect=$('testPhase'),cameraSelect=$('cameraSelect'),qualityModeSelect=$('qualityMode');
-const refreshCamerasBtn=$('refreshCamerasBtn'),startCameraBtn=$('startCameraBtn'),stopCameraBtn=$('stopCameraBtn'),startRecordingBtn=$('startRecordingBtn'),stopRecordingBtn=$('stopRecordingBtn'),downloadBtn=$('downloadBtn');
-const videoPreview=$('videoPreview'),outputCanvas=$('outputCanvas'),ctx=outputCanvas.getContext('2d');
-const videoStatusOverlay=$('videoStatusOverlay'),videoTimerOverlay=$('videoTimerOverlay'),preCountdownOverlay=$('preCountdownOverlay'),timerDisplay=$('timerDisplay'),prepCountdownDisplay=$('prepCountdown');
-const recordingLengthInputs=document.querySelectorAll('input[name="recordingLength"]'),timerSizeInputs=document.querySelectorAll('input[name="timerSize"]'),showSkeletonCheckbox=$('showSkeleton');
-const cameraStatus=$('cameraStatus'),recordingStatus=$('recordingStatus'),downloadStatus=$('downloadStatus');
-const diagCameraLabel=$('diagCameraLabel'),diagRequestedMode=$('diagRequestedMode'),diagResolution=$('diagResolution'),diagFrameRate=$('diagFrameRate'),diagAspectRatio=$('diagAspectRatio'),diagMimeType=$('diagMimeType'),diagPoseStatus=$('diagPoseStatus'),diagPoseFps=$('diagPoseFps'),diagRecordSource=$('diagRecordSource'),diagCapabilities=$('diagCapabilities'),diagRecommendation=$('diagRecommendation');
+const ctx = els.canvas.getContext("2d");
 
-function showStatus(el,msg,type){el.textContent=msg;el.className=`status-message ${type}`;}
-function formatTime(ms){const s=Math.ceil(ms/1000),m=Math.floor(s/60),r=s%60;return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;}
-function generateFilename(code,phase,label){const n=new Date(),p=x=>String(x).padStart(2,'0');return `${code}_${phase}_${label}_skeleton_${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}_${p(n.getHours())}${p(n.getMinutes())}.webm`;}
-function getSelectedRecordingLength(){return Array.from(recordingLengthInputs).find(i=>i.checked)?.value||'120';}
-function getSelectedRecordingLabel(){return `${getSelectedRecordingLength()}s`;}
-function getSelectedRecordingDuration(){return RECORDING_LENGTHS[getSelectedRecordingLength()]||120000;}
-function getSelectedTimerSize(){return Array.from(timerSizeInputs).find(i=>i.checked)?.value||'large';}
-function applyTimerSize(){videoTimerOverlay.classList.remove('timer-normal','timer-large');videoTimerOverlay.classList.add(getSelectedTimerSize()==='normal'?'timer-normal':'timer-large');}
-function getSelectedQualityModeKey(){return qualityModeSelect.value||'1280x720_30';}
-function getSelectedQualityMode(){return QUALITY_MODES[getSelectedQualityModeKey()]||QUALITY_MODES['1280x720_30'];}
-function safeRound(v,d=2){return typeof v==='number'?Number(v.toFixed(d)):'未提供';}
-function formatRange(c){if(!c)return'未提供';if(Array.isArray(c))return c.join(', ');if(typeof c==='object')return `${c.min??'?'} – ${c.max??'?'}`;return String(c);}
+const RECORDING_LENGTHS = { "30": 30000, "60": 60000, "120": 120000 };
+const QUALITY_MODES = {
+  auto: { label: "自動模式", constraints: {} },
+  "640x480_30": { label: "640 × 480 / 30fps", constraints: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } },
+  "960x540_30": { label: "960 × 540 / 30fps", constraints: { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 30, max: 30 } } },
+  "1280x720_30": { label: "1280 × 720 / 30fps", constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } }
+};
 
-function ensureAudioContext(){if(!audioContext){const A=window.AudioContext||window.webkitAudioContext;if(A)audioContext=new A();}if(audioContext&&audioContext.state==='suspended')audioContext.resume();}
-function playTone(t,f,d){if(!audioContext)return;const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.setValueAtTime(f,t);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.4,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(audioContext.destination);o.start(t);o.stop(t+d+.02);}
-function playFinishBeep(){try{ensureAudioContext();if(!audioContext)return;const n=audioContext.currentTime;playTone(n,880,.18);playTone(n+.28,880,.18);playTone(n+.56,1046,.24);}catch(e){console.warn(e);}}
+function status(el, msg, type = "info") {
+  el.textContent = msg;
+  el.className = `status-message ${type}`;
+}
 
-function setText(el,text){if(el)el.textContent=text;}
-function resetDiagnostics(){setText(diagCameraLabel,'尚未啟動');setText(diagRequestedMode,getSelectedQualityMode().label);setText(diagResolution,'尚未啟動');setText(diagFrameRate,'尚未啟動');setText(diagAspectRatio,'尚未啟動');setText(diagMimeType,currentRecorderMimeType||'尚未錄影');setText(diagPoseStatus,'尚未啟動');setText(diagPoseFps,'尚未啟動');setText(diagRecordSource,'Canvas 骨架疊圖');setText(diagCapabilities,'啟動攝影機後顯示。');setText(diagRecommendation,'先用 640×480/30fps 測骨架穩定，再測 960×540/30fps 與 1280×720/30fps。');}
-function summarizeCapabilities(c){if(!c)return'此瀏覽器或攝影機未提供 capabilities。';return [`width: ${formatRange(c.width)}`,`height: ${formatRange(c.height)}`,`frameRate: ${formatRange(c.frameRate)}`,`aspectRatio: ${formatRange(c.aspectRatio)}`,`facingMode: ${formatRange(c.facingMode)}`].join('\\n');}
-function updateDiagnosticsFromTrack(track){if(!track){resetDiagnostics();return;}const s=track.getSettings?track.getSettings():{},c=track.getCapabilities?track.getCapabilities():null;diagCameraLabel.textContent=track.label||'未提供名稱';diagRequestedMode.textContent=getSelectedQualityMode().label;diagResolution.textContent=`${s.width||'未提供'} × ${s.height||'未提供'}`;diagFrameRate.textContent=s.frameRate!==undefined?`${safeRound(s.frameRate,2)} fps`:'未提供';if(diagAspectRatio)diagAspectRatio.textContent=s.aspectRatio!==undefined?safeRound(s.aspectRatio,3):(s.width&&s.height?safeRound(s.width/s.height,3):'未提供');diagMimeType.textContent=currentRecorderMimeType||'尚未錄影';diagCapabilities.textContent=summarizeCapabilities(c);diagRecommendation.textContent=s.frameRate&&s.frameRate<24?'目前實際幀率低於 24fps，建議改測 640×480/30fps 或自動模式。':'請觀察肩、肘、腕、髖骨架點是否穩定，尤其是手腕與手肘是否跳動。';}
+function setText(el, value) {
+  if (el) el.textContent = value;
+}
 
-async function refreshCameraList(){if(!navigator.mediaDevices?.enumerateDevices){showStatus(cameraStatus,'✗ 此瀏覽器不支援攝影機清單功能','error');return;}try{const devices=await navigator.mediaDevices.enumerateDevices(),videos=devices.filter(d=>d.kind==='videoinput'),cur=cameraSelect.value;cameraSelect.innerHTML='';const def=document.createElement('option');def.value='';def.textContent='預設攝影機（優先後鏡頭 / 外接鏡頭）';cameraSelect.appendChild(def);videos.forEach((d,i)=>{const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`攝影機 ${i+1}`;cameraSelect.appendChild(o);});if(cur&&Array.from(cameraSelect.options).some(o=>o.value===cur))cameraSelect.value=cur;showStatus(cameraStatus,videos.length?`✓ 已找到 ${videos.length} 個攝影機來源`:'尚未偵測到攝影機。請確認攝影機已連接。',videos.length?'success':'info');}catch(e){showStatus(cameraStatus,`✗ 取得攝影機清單失敗: ${e.message}`,'error');}}
-function buildVideoConstraints(){const c={...getSelectedQualityMode().constraints};if(cameraSelect.value)c.deviceId={exact:cameraSelect.value};else c.facingMode={ideal:'environment'};return c;}
+function fmtTime(ms) {
+  const s = Math.ceil(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
 
-async function initPose(){if(pose)return pose;if(!window.Pose)throw new Error('MediaPipe Pose 尚未載入，請確認網路連線或 CDN 是否可用。');pose=new Pose({locateFile:file=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`});pose.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,smoothSegmentation:false,minDetectionConfidence:.5,minTrackingConfidence:.5});pose.onResults(onPoseResults);return pose;}
+function selectedDuration() {
+  const value = document.querySelector('input[name="recordingLength"]:checked')?.value || "120";
+  return RECORDING_LENGTHS[value] || 120000;
+}
 
-function resizeCanvasToVideo(){const w=videoPreview.videoWidth||1280,h=videoPreview.videoHeight||720;if(outputCanvas.width!==w||outputCanvas.height!==h){outputCanvas.width=w;outputCanvas.height=h;}}
-function drawBaseFrame(){resizeCanvasToVideo();ctx.save();ctx.clearRect(0,0,outputCanvas.width,outputCanvas.height);ctx.drawImage(videoPreview,0,0,outputCanvas.width,outputCanvas.height);ctx.restore();}
-function startPoseLoop(){if(poseRunning)return;poseRunning=true;poseFrameCount=0;poseFpsLastTime=performance.now();diagPoseStatus.textContent='骨架偵測啟動中';const loop=async()=>{if(!poseRunning||!mediaStream)return;if(videoPreview.readyState>=2){try{drawBaseFrame();await pose.send({image:videoPreview});poseFrameCount++;const now=performance.now();if(now-poseFpsLastTime>=1000){poseFps=poseFrameCount/((now-poseFpsLastTime)/1000);diagPoseFps.textContent=`${safeRound(poseFps,1)} fps`;poseFrameCount=0;poseFpsLastTime=now;}}catch(e){console.warn('MediaPipe 偵測錯誤:',e);diagPoseStatus.textContent='骨架偵測錯誤';}}poseRafId=requestAnimationFrame(loop);};loop();}
-function stopPoseLoop(){poseRunning=false;if(poseRafId)cancelAnimationFrame(poseRafId);poseRafId=null;ctx.clearRect(0,0,outputCanvas.width,outputCanvas.height);diagPoseStatus.textContent='骨架偵測已停止';diagPoseFps.textContent='尚未啟動';}
+function selectedLabel() {
+  const value = document.querySelector('input[name="recordingLength"]:checked')?.value || "120";
+  return `${value}s`;
+}
 
-function validLm(lm){return lm&&(lm.visibility===undefined||lm.visibility>=.35);}
-function drawPoint(lm,color,label){const x=lm.x*outputCanvas.width,y=lm.y*outputCanvas.height;ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.stroke();ctx.font='18px Arial';ctx.fillStyle='#fff';ctx.fillText(label,x+10,y-8);}
-function drawLine(a,b,color){ctx.beginPath();ctx.moveTo(a.x*outputCanvas.width,a.y*outputCanvas.height);ctx.lineTo(b.x*outputCanvas.width,b.y*outputCanvas.height);ctx.lineWidth=6;ctx.strokeStyle=color;ctx.stroke();}
-function drawSide(lms,side,color){const idx=side==='L'?{s:11,e:13,w:15,h:23}:{s:12,e:14,w:16,h:24},s=lms[idx.s],e=lms[idx.e],w=lms[idx.w],h=lms[idx.h];if(validLm(w)&&validLm(e))drawLine(w,e,color);if(validLm(e)&&validLm(s))drawLine(e,s,color);if(validLm(s)&&validLm(h))drawLine(s,h,color);if(validLm(s))drawPoint(s,color,`${side}肩`);if(validLm(e))drawPoint(e,color,`${side}肘`);if(validLm(w))drawPoint(w,color,`${side}腕`);if(validLm(h))drawPoint(h,color,`${side}髖`);}
-function onPoseResults(results){drawBaseFrame();if(!showSkeletonCheckbox.checked){diagPoseStatus.textContent='骨架顯示關閉';return;}if(!results.poseLandmarks){diagPoseStatus.textContent='未偵測到人體';return;}diagPoseStatus.textContent='已偵測到人體骨架';drawSide(results.poseLandmarks,'L','#00e5ff');drawSide(results.poseLandmarks,'R','#ffeb3b');}
+function selectedQuality() {
+  return QUALITY_MODES[els.qualityMode.value] || QUALITY_MODES["960x540_30"];
+}
 
-async function startCamera(){try{if(mediaStream)stopCamera();mediaStream=await navigator.mediaDevices.getUserMedia({video:buildVideoConstraints(),audio:false});videoPreview.srcObject=mediaStream;await videoPreview.play();await new Promise(r=>{if(videoPreview.videoWidth)r();else videoPreview.onloadedmetadata=r;});resizeCanvasToVideo();drawBaseFrame();startCameraBtn.disabled=true;stopCameraBtn.disabled=false;startRecordingBtn.disabled=false;cameraSelect.disabled=true;qualityModeSelect.disabled=true;updateStatusOverlay('待機');updateTimerOverlay(formatTime(getSelectedRecordingDuration()));updatePreCountdownOverlay('');applyTimerSize();updateDiagnosticsFromTrack(mediaStream.getVideoTracks()[0]);showStatus(cameraStatus,'✓ 攝影機已啟動，MediaPipe 骨架偵測準備中','success');await initPose();startPoseLoop();await refreshCameraList();cameraSelect.disabled=true;}catch(e){console.error(e);showStatus(cameraStatus,`✗ 錯誤: ${e.message}`,'error');}}
-function stopCamera(){stopPoseLoop();if(mediaStream)mediaStream.getTracks().forEach(t=>t.stop());mediaStream=null;videoPreview.srcObject=null;if(isRecording||isPreparing)stopRecording();startCameraBtn.disabled=false;stopCameraBtn.disabled=true;startRecordingBtn.disabled=true;stopRecordingBtn.disabled=true;cameraSelect.disabled=false;qualityModeSelect.disabled=false;updateStatusOverlay('攝影機未啟動');updateTimerOverlay('00:00');updatePreCountdownOverlay('');resetDiagnostics();showStatus(cameraStatus,'✓ 攝影機已停止','info');}
+function updateTimerSize() {
+  const size = document.querySelector('input[name="timerSize"]:checked')?.value || "large";
+  els.timerOverlay.classList.remove("timer-normal", "timer-large");
+  els.timerOverlay.classList.add(size === "normal" ? "timer-normal" : "timer-large");
+}
 
-function startRecording(){if(isPreparing||isRecording)return;if(!subjectCodeInput.value.trim()){showStatus(recordingStatus,'✗ 請輸入受試者代碼','error');return;}if(!testPhaseSelect.value){showStatus(recordingStatus,'✗ 請選擇測驗階段','error');return;}if(!mediaStream){showStatus(recordingStatus,'✗ 攝影機尚未啟動','error');return;}ensureAudioContext();applyTimerSize();currentRecordingDuration=getSelectedRecordingDuration();lastRecordingLabel=getSelectedRecordingLabel();subjectCodeInput.disabled=true;testPhaseSelect.disabled=true;recordingLengthInputs.forEach(i=>i.disabled=true);timerSizeInputs.forEach(i=>i.disabled=true);stopCameraBtn.disabled=true;startRecordingBtn.disabled=true;stopRecordingBtn.disabled=true;downloadBtn.disabled=true;let prepSeconds=PREP_COUNTDOWN_SECONDS;updateStatusOverlay('預備中');updateTimerOverlay(formatTime(currentRecordingDuration));updatePreCountdownOverlay(String(prepSeconds));isPreparing=true;prepCountdownDisplay.textContent=String(prepSeconds);showStatus(recordingStatus,'● 預備倒數中...','info');showStatus(downloadStatus,'','info');prepInterval=setInterval(()=>{prepSeconds-=1;if(prepSeconds>0){prepCountdownDisplay.textContent=String(prepSeconds);updatePreCountdownOverlay(String(prepSeconds));return;}clearInterval(prepInterval);prepInterval=null;prepCountdownDisplay.textContent='開始';updatePreCountdownOverlay('開始');setTimeout(()=>beginRecording(),350);},1000);}
-function beginRecording(){recordedChunks=[];const fps=Math.round(mediaStream.getVideoTracks()[0].getSettings().frameRate||30);recordStream=outputCanvas.captureStream(Math.max(15,Math.min(30,fps)));let options={mimeType:'video/webm;codecs=vp9'};if(!MediaRecorder.isTypeSupported(options.mimeType))options.mimeType='video/webm;codecs=vp8';if(!MediaRecorder.isTypeSupported(options.mimeType))options.mimeType='video/webm';try{mediaRecorder=new MediaRecorder(recordStream,options);}catch(e){mediaRecorder=new MediaRecorder(recordStream);}currentRecorderMimeType=mediaRecorder.mimeType||options.mimeType||'瀏覽器預設';diagMimeType.textContent=currentRecorderMimeType;mediaRecorder.ondataavailable=e=>{if(e.data.size>0)recordedChunks.push(e.data);};mediaRecorder.onstop=()=>{window.recordedBlob=new Blob(recordedChunks,{type:mediaRecorder.mimeType||'video/webm'});downloadBtn.disabled=false;updateStatusOverlay('✓ 錄製完成');updateTimerOverlay('00:00');updatePreCountdownOverlay('');showStatus(recordingStatus,'✓ 骨架疊圖影片錄製已完成','success');showStatus(downloadStatus,'✓ 可以下載骨架疊圖影片','success');playFinishBeep();};mediaRecorder.start();recordingStartTime=Date.now();isRecording=true;isPreparing=false;stopRecordingBtn.disabled=false;timerDisplay.classList.add('recording');updateStatusOverlay('● 錄製中');updateTimerOverlay(formatTime(currentRecordingDuration));updatePreCountdownOverlay('');prepCountdownDisplay.textContent='';showStatus(recordingStatus,'● 錄製骨架疊圖影片中...','info');updateTimer();timerInterval=setInterval(updateTimer,100);recordingTimeout=setTimeout(()=>{if(isRecording)stopRecording();},currentRecordingDuration);}
-function stopRecording(){if(!isRecording&&!isPreparing)return;if(prepInterval)clearInterval(prepInterval);if(recordingTimeout)clearTimeout(recordingTimeout);if(timerInterval)clearInterval(timerInterval);prepInterval=null;recordingTimeout=null;timerInterval=null;const wasRecording=isRecording;isRecording=false;isPreparing=false;recordingStartTime=null;timerDisplay.textContent='00:00';timerDisplay.classList.remove('recording');prepCountdownDisplay.textContent='';updatePreCountdownOverlay('');if(wasRecording&&mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();else{updateStatusOverlay('待機');updateTimerOverlay(formatTime(getSelectedRecordingDuration()));}startRecordingBtn.disabled=!mediaStream;stopRecordingBtn.disabled=true;subjectCodeInput.disabled=false;testPhaseSelect.disabled=false;recordingLengthInputs.forEach(i=>i.disabled=false);timerSizeInputs.forEach(i=>i.disabled=false);stopCameraBtn.disabled=false;showStatus(recordingStatus,wasRecording?'✓ 錄製已停止':'準備就緒',wasRecording?'success':'info');}
-function updateTimer(){if(!recordingStartTime||!isRecording)return;const remain=Math.max(0,currentRecordingDuration-(Date.now()-recordingStartTime));timerDisplay.textContent=formatTime(remain);updateTimerOverlay(formatTime(remain));}
-function updateStatusOverlay(text){videoStatusOverlay.textContent=text;videoStatusOverlay.classList.remove('status-idle','status-preparing','status-recording','status-complete','status-camera-off');if(text==='待機')videoStatusOverlay.classList.add('status-idle');else if(text==='預備中')videoStatusOverlay.classList.add('status-preparing');else if(text.includes('錄製中'))videoStatusOverlay.classList.add('status-recording');else if(text.includes('錄製完成'))videoStatusOverlay.classList.add('status-complete');else if(text==='攝影機未啟動')videoStatusOverlay.classList.add('status-camera-off');}
-function updateTimerOverlay(text){videoTimerOverlay.textContent=text;}
-function updatePreCountdownOverlay(text){if(text&&String(text).trim()!==''){preCountdownOverlay.textContent=text;preCountdownOverlay.classList.remove('hidden');}else{preCountdownOverlay.textContent='';preCountdownOverlay.classList.add('hidden');}}
-function downloadVideo(){if(!window.recordedBlob){showStatus(downloadStatus,'✗ 沒有可下載的影片','error');return;}const filename=generateFilename(subjectCodeInput.value.trim(),testPhaseSelect.value,lastRecordingLabel);const url=URL.createObjectURL(window.recordedBlob),link=document.createElement('a');link.href=url;link.download=filename;document.body.appendChild(link);link.click();document.body.removeChild(link);URL.revokeObjectURL(url);showStatus(downloadStatus,`✓ 正在下載: ${filename}`,'success');}
+function updateStatusOverlay(text) {
+  els.statusOverlay.textContent = text;
+  els.statusOverlay.classList.remove("status-idle", "status-preparing", "status-recording", "status-complete", "status-camera-off");
+  if (text === "待機") els.statusOverlay.classList.add("status-idle");
+  else if (text === "預備中") els.statusOverlay.classList.add("status-preparing");
+  else if (text.includes("錄製中")) els.statusOverlay.classList.add("status-recording");
+  else if (text.includes("錄製完成")) els.statusOverlay.classList.add("status-complete");
+  else if (text.includes("未啟動")) els.statusOverlay.classList.add("status-camera-off");
+}
 
-refreshCamerasBtn.addEventListener('click',refreshCameraList);startCameraBtn.addEventListener('click',startCamera);stopCameraBtn.addEventListener('click',stopCamera);startRecordingBtn.addEventListener('click',startRecording);stopRecordingBtn.addEventListener('click',stopRecording);downloadBtn.addEventListener('click',downloadVideo);
-recordingLengthInputs.forEach(i=>i.addEventListener('change',()=>{if(!isRecording&&!isPreparing){const d=getSelectedRecordingDuration();updateTimerOverlay(formatTime(d));timerDisplay.textContent=formatTime(d);}}));
-timerSizeInputs.forEach(i=>i.addEventListener('change',()=>{if(!isRecording&&!isPreparing)applyTimerSize();}));
-qualityModeSelect.addEventListener('change',()=>{if(!isRecording&&!isPreparing){diagRequestedMode.textContent=getSelectedQualityMode().label;if(mediaStream)showStatus(cameraStatus,'畫質模式已變更，請停止攝影機後重新啟動才會套用。','info');}});
-showSkeletonCheckbox.addEventListener('change',()=>{diagPoseStatus.textContent=showSkeletonCheckbox.checked?'骨架顯示開啟':'骨架顯示關閉';});
-if(navigator.mediaDevices?.addEventListener)navigator.mediaDevices.addEventListener('devicechange',refreshCameraList);
-document.addEventListener('DOMContentLoaded',()=>{timerDisplay.textContent=formatTime(getSelectedRecordingDuration());prepCountdownDisplay.textContent='準備就緒';updateStatusOverlay('待機');updateTimerOverlay(formatTime(getSelectedRecordingDuration()));updatePreCountdownOverlay('');applyTimerSize();resetDiagnostics();showStatus(cameraStatus,'請啟動攝影機。V2.0.2 會將攝影機畫面與骨架一起畫到 Canvas，並錄製 Canvas。','info');showStatus(recordingStatus,'準備就緒','info');showStatus(downloadStatus,'','info');refreshCameraList();});
-console.log('CPR 研究用網頁系統 V2.0.2 已載入');
+function setPrep(text) {
+  if (text) {
+    els.prepOverlay.textContent = text;
+    els.prepOverlay.classList.remove("hidden");
+  } else {
+    els.prepOverlay.textContent = "";
+    els.prepOverlay.classList.add("hidden");
+  }
+}
+
+function setCanvasSize() {
+  const w = els.video.videoWidth || 960;
+  const h = els.video.videoHeight || 540;
+  if (w <= 0 || h <= 0) return false;
+  if (els.canvas.width !== w || els.canvas.height !== h) {
+    els.canvas.width = w;
+    els.canvas.height = h;
+  }
+  return true;
+}
+
+function drawBase() {
+  if (!setCanvasSize()) return;
+  ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+  if (els.video.readyState >= 2) {
+    ctx.drawImage(els.video, 0, 0, els.canvas.width, els.canvas.height);
+  }
+}
+
+function drawLandmark(lm, color, label) {
+  const x = lm.x * els.canvas.width;
+  const y = lm.y * els.canvas.height;
+  ctx.beginPath();
+  ctx.arc(x, y, 8, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#fff";
+  ctx.stroke();
+  ctx.font = "18px Arial";
+  ctx.fillStyle = "#fff";
+  ctx.fillText(label, x + 10, y - 8);
+}
+
+function drawLine(a, b, color) {
+  ctx.beginPath();
+  ctx.moveTo(a.x * els.canvas.width, a.y * els.canvas.height);
+  ctx.lineTo(b.x * els.canvas.width, b.y * els.canvas.height);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+}
+
+function ok(lm) {
+  return lm && (lm.visibility === undefined || lm.visibility >= 0.35);
+}
+
+function drawSide(lms, side, color) {
+  const idx = side === "L" ? { s: 11, e: 13, w: 15, h: 23 } : { s: 12, e: 14, w: 16, h: 24 };
+  const s = lms[idx.s], e = lms[idx.e], w = lms[idx.w], h = lms[idx.h];
+  if (ok(w) && ok(e)) drawLine(w, e, color);
+  if (ok(e) && ok(s)) drawLine(e, s, color);
+  if (ok(s) && ok(h)) drawLine(s, h, color);
+  if (ok(s)) drawLandmark(s, color, `${side}肩`);
+  if (ok(e)) drawLandmark(e, color, `${side}肘`);
+  if (ok(w)) drawLandmark(w, color, `${side}腕`);
+  if (ok(h)) drawLandmark(h, color, `${side}髖`);
+}
+
+function drawPose(results) {
+  if (!els.showSkeleton.checked) return;
+  const lms = results?.landmarks?.[0];
+  if (!lms) {
+    setText(els.diagPoseStatus, "未偵測到人體");
+    return;
+  }
+  setText(els.diagPoseStatus, "已偵測到人體骨架");
+  drawSide(lms, "L", "#00e5ff");
+  drawSide(lms, "R", "#ffeb3b");
+}
+
+function showCapabilities(track) {
+  const s = track.getSettings ? track.getSettings() : {};
+  const c = track.getCapabilities ? track.getCapabilities() : {};
+  setText(els.diagCameraLabel, track.label || "未提供名稱");
+  setText(els.diagRequestedMode, selectedQuality().label);
+  setText(els.diagResolution, `${s.width || "未提供"} × ${s.height || "未提供"}`);
+  setText(els.diagFrameRate, s.frameRate ? `${Number(s.frameRate.toFixed(2))} fps` : "未提供");
+  setText(els.diagAspectRatio, s.aspectRatio ? Number(s.aspectRatio.toFixed(3)) : (s.width && s.height ? Number((s.width / s.height).toFixed(3)) : "未提供"));
+  setText(els.diagDetails, [
+    `width: ${c.width ? `${c.width.min} – ${c.width.max}` : "未提供"}`,
+    `height: ${c.height ? `${c.height.min} – ${c.height.max}` : "未提供"}`,
+    `frameRate: ${c.frameRate ? `${c.frameRate.min} – ${c.frameRate.max}` : "未提供"}`,
+    `facingMode: ${Array.isArray(c.facingMode) ? c.facingMode.join(", ") : "未提供"}`
+  ].join("\\n"));
+}
+
+async function refreshCameraList() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videos = devices.filter(d => d.kind === "videoinput");
+    const current = els.cameraSelect.value;
+    els.cameraSelect.innerHTML = "";
+    const def = document.createElement("option");
+    def.value = "";
+    def.textContent = "預設攝影機（優先後鏡頭 / 外接鏡頭）";
+    els.cameraSelect.appendChild(def);
+    videos.forEach((d, i) => {
+      const o = document.createElement("option");
+      o.value = d.deviceId;
+      o.textContent = d.label || `攝影機 ${i + 1}`;
+      els.cameraSelect.appendChild(o);
+    });
+    if (current && Array.from(els.cameraSelect.options).some(o => o.value === current)) els.cameraSelect.value = current;
+    status(els.cameraStatus, videos.length ? `✓ 已找到 ${videos.length} 個攝影機來源` : "尚未偵測到攝影機。", videos.length ? "success" : "info");
+  } catch (e) {
+    status(els.cameraStatus, `✗ 取得攝影機清單失敗: ${e.message}`, "error");
+  }
+}
+
+function buildVideoConstraints() {
+  const constraints = { ...selectedQuality().constraints };
+  if (els.cameraSelect.value) constraints.deviceId = { exact: els.cameraSelect.value };
+  else constraints.facingMode = { ideal: "environment" };
+  return constraints;
+}
+
+async function initPoseLandmarker() {
+  if (poseLandmarker) return poseLandmarker;
+  setText(els.diagPoseStatus, "MediaPipe Tasks Vision 載入中...");
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm");
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO",
+    numPoses: 1,
+    minPoseDetectionConfidence: 0.5,
+    minPosePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+  setText(els.diagPoseStatus, "MediaPipe Tasks Vision 已載入");
+  return poseLandmarker;
+}
+
+async function startCamera() {
+  try {
+    if (mediaStream) stopCamera();
+    mediaStream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints(), audio: false });
+    els.video.srcObject = mediaStream;
+    await els.video.play();
+
+    await new Promise(resolve => {
+      if (els.video.videoWidth > 0 && els.video.videoHeight > 0) resolve();
+      else els.video.onloadedmetadata = resolve;
+    });
+
+    setCanvasSize();
+    drawBase();
+    showCapabilities(mediaStream.getVideoTracks()[0]);
+
+    els.startCameraBtn.disabled = true;
+    els.stopCameraBtn.disabled = false;
+    els.startRecordingBtn.disabled = false;
+    els.cameraSelect.disabled = true;
+    els.qualityMode.disabled = true;
+
+    updateStatusOverlay("待機");
+    els.timerOverlay.textContent = fmtTime(selectedDuration());
+    setPrep("");
+    updateTimerSize();
+
+    status(els.cameraStatus, "✓ 攝影機已啟動，正在啟動 MediaPipe Tasks Vision", "success");
+    await initPoseLandmarker();
+    startPoseLoop();
+    await refreshCameraList();
+    els.cameraSelect.disabled = true;
+  } catch (e) {
+    console.error(e);
+    status(els.cameraStatus, `✗ 錯誤: ${e.message}`, "error");
+    setText(els.diagPoseStatus, "骨架啟動失敗");
+    setText(els.diagDetails, String(e.stack || e.message || e));
+  }
+}
+
+function startPoseLoop() {
+  if (poseRunning) return;
+  poseRunning = true;
+  poseFrameCount = 0;
+  poseFpsStart = performance.now();
+  lastVideoTime = -1;
+
+  const loop = () => {
+    if (!poseRunning || !mediaStream || !poseLandmarker) return;
+
+    if (els.video.readyState >= 2 && els.video.videoWidth > 0 && els.video.videoHeight > 0) {
+      drawBase();
+
+      if (els.video.currentTime !== lastVideoTime) {
+        lastVideoTime = els.video.currentTime;
+        try {
+          const results = poseLandmarker.detectForVideo(els.video, performance.now());
+          drawPose(results);
+          poseFrameCount++;
+          const now = performance.now();
+          if (now - poseFpsStart >= 1000) {
+            setText(els.diagPoseFps, `${Number((poseFrameCount / ((now - poseFpsStart) / 1000)).toFixed(1))} fps`);
+            poseFrameCount = 0;
+            poseFpsStart = now;
+          }
+        } catch (e) {
+          console.warn("PoseLandmarker 偵測錯誤:", e);
+          setText(els.diagPoseStatus, "骨架偵測錯誤");
+          setText(els.diagDetails, String(e.stack || e.message || e));
+        }
+      }
+    }
+    rafId = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function stopPoseLoop() {
+  poseRunning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+  setText(els.diagPoseStatus, "骨架偵測已停止");
+  setText(els.diagPoseFps, "尚未啟動");
+}
+
+function stopCamera() {
+  stopPoseLoop();
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  mediaStream = null;
+  els.video.srcObject = null;
+  if (isRecording || isPreparing) stopRecording();
+  els.startCameraBtn.disabled = false;
+  els.stopCameraBtn.disabled = true;
+  els.startRecordingBtn.disabled = true;
+  els.stopRecordingBtn.disabled = true;
+  els.cameraSelect.disabled = false;
+  els.qualityMode.disabled = false;
+  updateStatusOverlay("攝影機未啟動");
+  els.timerOverlay.textContent = "00:00";
+  setPrep("");
+  status(els.cameraStatus, "✓ 攝影機已停止", "info");
+}
+
+function ensureAudioContext() {
+  if (!audioContext) {
+    const A = window.AudioContext || window.webkitAudioContext;
+    if (A) audioContext = new A();
+  }
+  if (audioContext && audioContext.state === "suspended") audioContext.resume();
+}
+
+function playFinishBeep() {
+  try {
+    ensureAudioContext();
+    if (!audioContext) return;
+    const now = audioContext.currentTime;
+    [0, .28, .56].forEach((offset, i) => {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.frequency.value = i === 2 ? 1046 : 880;
+      gain.gain.setValueAtTime(.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(.4, now + offset + .02);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + offset + .2);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + .22);
+    });
+  } catch {}
+}
+
+function startRecording() {
+  if (isPreparing || isRecording) return;
+  if (!els.subjectCode.value.trim()) { status(els.recordingStatus, "✗ 請輸入受試者代碼", "error"); return; }
+  if (!els.testPhase.value) { status(els.recordingStatus, "✗ 請選擇測驗階段", "error"); return; }
+  if (!mediaStream) { status(els.recordingStatus, "✗ 攝影機尚未啟動", "error"); return; }
+
+  ensureAudioContext();
+  currentDuration = selectedDuration();
+  lastRecordingLabel = selectedLabel();
+
+  els.subjectCode.disabled = true;
+  els.testPhase.disabled = true;
+  document.querySelectorAll('input[name="recordingLength"],input[name="timerSize"]').forEach(i => i.disabled = true);
+  els.stopCameraBtn.disabled = true;
+  els.startRecordingBtn.disabled = true;
+  els.stopRecordingBtn.disabled = true;
+  els.downloadBtn.disabled = true;
+
+  let prep = 10;
+  isPreparing = true;
+  updateStatusOverlay("預備中");
+  els.timerOverlay.textContent = fmtTime(currentDuration);
+  setPrep(String(prep));
+  els.prepCountdown.textContent = String(prep);
+  status(els.recordingStatus, "● 預備倒數中...", "info");
+
+  prepInterval = setInterval(() => {
+    prep -= 1;
+    if (prep > 0) {
+      setPrep(String(prep));
+      els.prepCountdown.textContent = String(prep);
+    } else {
+      clearInterval(prepInterval);
+      prepInterval = null;
+      setPrep("開始");
+      els.prepCountdown.textContent = "開始";
+      setTimeout(beginRecording, 350);
+    }
+  }, 1000);
+}
+
+function beginRecording() {
+  recordedChunks = [];
+  const fps = Math.round(mediaStream.getVideoTracks()[0].getSettings().frameRate || 30);
+  const recordStream = els.canvas.captureStream(Math.max(15, Math.min(30, fps)));
+  let options = { mimeType: "video/webm;codecs=vp9" };
+  if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = "video/webm;codecs=vp8";
+  if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = "video/webm";
+
+  try { mediaRecorder = new MediaRecorder(recordStream, options); }
+  catch { mediaRecorder = new MediaRecorder(recordStream); }
+
+  currentMimeType = mediaRecorder.mimeType || options.mimeType || "瀏覽器預設";
+  setText(els.diagMimeType, currentMimeType);
+
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    window.recordedBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "video/webm" });
+    els.downloadBtn.disabled = false;
+    updateStatusOverlay("✓ 錄製完成");
+    els.timerOverlay.textContent = "00:00";
+    setPrep("");
+    status(els.recordingStatus, "✓ 骨架疊圖影片錄製已完成", "success");
+    status(els.downloadStatus, "✓ 可以下載骨架疊圖影片", "success");
+    playFinishBeep();
+  };
+
+  mediaRecorder.start();
+  recordingStartTime = Date.now();
+  isRecording = true;
+  isPreparing = false;
+  els.stopRecordingBtn.disabled = false;
+  els.timerDisplay.classList.add("recording");
+  updateStatusOverlay("● 錄製中");
+  els.timerOverlay.textContent = fmtTime(currentDuration);
+  setPrep("");
+  els.prepCountdown.textContent = "";
+  status(els.recordingStatus, "● 錄製骨架疊圖影片中...", "info");
+
+  updateTimer();
+  timerInterval = setInterval(updateTimer, 100);
+  recordingTimeout = setTimeout(() => { if (isRecording) stopRecording(); }, currentDuration);
+}
+
+function stopRecording() {
+  if (!isRecording && !isPreparing) return;
+  if (prepInterval) clearInterval(prepInterval);
+  if (recordingTimeout) clearTimeout(recordingTimeout);
+  if (timerInterval) clearInterval(timerInterval);
+  prepInterval = null;
+  recordingTimeout = null;
+  timerInterval = null;
+
+  const wasRecording = isRecording;
+  isRecording = false;
+  isPreparing = false;
+  recordingStartTime = null;
+  els.timerDisplay.textContent = "00:00";
+  els.timerDisplay.classList.remove("recording");
+  els.prepCountdown.textContent = "";
+  setPrep("");
+
+  if (wasRecording && mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  else {
+    updateStatusOverlay("待機");
+    els.timerOverlay.textContent = fmtTime(selectedDuration());
+  }
+
+  els.startRecordingBtn.disabled = !mediaStream;
+  els.stopRecordingBtn.disabled = true;
+  els.subjectCode.disabled = false;
+  els.testPhase.disabled = false;
+  document.querySelectorAll('input[name="recordingLength"],input[name="timerSize"]').forEach(i => i.disabled = false);
+  els.stopCameraBtn.disabled = false;
+}
+
+function updateTimer() {
+  if (!recordingStartTime || !isRecording) return;
+  const remain = Math.max(0, currentDuration - (Date.now() - recordingStartTime));
+  els.timerDisplay.textContent = fmtTime(remain);
+  els.timerOverlay.textContent = fmtTime(remain);
+}
+
+function downloadVideo() {
+  if (!window.recordedBlob) { status(els.downloadStatus, "✗ 沒有可下載的影片", "error"); return; }
+  const now = new Date();
+  const p = n => String(n).padStart(2, "0");
+  const filename = `${els.subjectCode.value.trim()}_${els.testPhase.value}_${lastRecordingLabel}_skeleton_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.webm`;
+  const url = URL.createObjectURL(window.recordedBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  status(els.downloadStatus, `✓ 正在下載: ${filename}`, "success");
+}
+
+els.refreshCamerasBtn.addEventListener("click", refreshCameraList);
+els.startCameraBtn.addEventListener("click", startCamera);
+els.stopCameraBtn.addEventListener("click", stopCamera);
+els.startRecordingBtn.addEventListener("click", startRecording);
+els.stopRecordingBtn.addEventListener("click", stopRecording);
+els.downloadBtn.addEventListener("click", downloadVideo);
+els.qualityMode.addEventListener("change", () => {
+  setText(els.diagRequestedMode, selectedQuality().label);
+  if (mediaStream) status(els.cameraStatus, "畫質模式已變更，請停止攝影機後重新啟動才會套用。", "info");
+});
+document.querySelectorAll('input[name="recordingLength"]').forEach(i => i.addEventListener("change", () => {
+  const d = selectedDuration();
+  els.timerDisplay.textContent = fmtTime(d);
+  els.timerOverlay.textContent = fmtTime(d);
+}));
+document.querySelectorAll('input[name="timerSize"]').forEach(i => i.addEventListener("change", updateTimerSize));
+if (navigator.mediaDevices?.addEventListener) navigator.mediaDevices.addEventListener("devicechange", refreshCameraList);
+
+document.addEventListener("DOMContentLoaded", () => {
+  updateTimerSize();
+  els.timerDisplay.textContent = fmtTime(selectedDuration());
+  els.timerOverlay.textContent = fmtTime(selectedDuration());
+  updateStatusOverlay("待機");
+  setPrep("");
+  status(els.cameraStatus, "請啟動攝影機。V2.0.3 使用 MediaPipe Tasks Vision PoseLandmarker。", "info");
+  status(els.recordingStatus, "準備就緒", "info");
+  status(els.downloadStatus, "", "info");
+  refreshCameraList();
+});

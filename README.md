@@ -1,18 +1,29 @@
 # CPR_Research
 
-## CPR 研究用網頁系統 V2.0.2
+## CPR 研究用網頁系統 V2.0.3
 
-V2.0.2 修正 V2.0.1 的診斷欄位不一致問題，並加入 960×540/30fps 中間尺寸。
+V2.0.3 改用 MediaPipe Tasks Vision `PoseLandmarker`，不再使用舊版 `@mediapipe/pose` 的 `Pose` 物件。
 
 ---
 
-## 修正內容
+## 為什麼做 V2.0.3
 
-- 修正 `Cannot set properties of null (setting 'textContent')`
-- 補回 `diagAspectRatio` 影像比例欄位
-- 加入 cache busting：`app.js?v=20260707-v202`
-- 新增畫質模式：960 × 540 / 30fps
-- 保留 Canvas 骨架疊圖錄影
+V2.0.2 在 Console 出現：
+
+```text
+GL_INVALID_FRAMEBUFFER_OPERATION: Framebuffer is incomplete: Attachment has zero size.
+RuntimeError: memory access out of bounds
+```
+
+這代表舊版 MediaPipe Pose 的 wasm/GPU 流程不穩，且可能在影片或 Canvas 尺寸尚未有效時被呼叫。
+
+V2.0.3 改用 Tasks Vision，並加入：
+
+- videoWidth/videoHeight 檢查
+- Canvas 尺寸檢查
+- `detectForVideo()` 同步偵測流程
+- 只在影片有效幀時偵測
+- 錄製 Canvas 骨架疊圖影片
 
 ---
 
@@ -23,12 +34,7 @@ V2.0.2 修正 V2.0.1 的診斷欄位不一致問題，並加入 960×540/30fps �
 - 960 × 540 / 30fps
 - 1280 × 720 / 30fps
 
-建議測試順序：
-
-1. 640 × 480 / 30fps
-2. 960 × 540 / 30fps
-3. 1280 × 720 / 30fps
-4. 自動模式
+建議先測 960 × 540 / 30fps。
 
 ---
 
@@ -36,8 +42,8 @@ V2.0.2 修正 V2.0.1 的診斷欄位不一致問題，並加入 960×540/30fps �
 
 ```bash
 git add index.html style.css app.js README.md
-git commit -m "V2.0.2 fix diagnostics and add 960x540 mode"
+git commit -m "V2.0.3 switch to MediaPipe Tasks Vision PoseLandmarker"
 git push
 ```
 
-部署後請用 Ctrl + F5 強制重新整理，避免瀏覽器沿用舊版 app.js。
+部署後請用 Ctrl + F5 強制重新整理。
