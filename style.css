@@ -89,6 +89,7 @@ select:focus {
     flex-wrap: wrap;
 }
 
+/* 錄影長度選項 */
 .duration-options {
     display: flex;
     align-items: center;
@@ -130,6 +131,7 @@ select:focus {
     background: #ebf4ff;
 }
 
+/* 預備倒數輔助顯示 */
 .prep-countdown {
     font-size: 42px;
     font-weight: 800;
@@ -226,9 +228,10 @@ canvas {
     background: #000;
 }
 
+/* 攝影機畫面疊加資訊 */
 .video-overlay {
     position: absolute;
-    z-index: 2;
+    z-index: 5;
     color: white;
     padding: 10px 14px;
     border-radius: 8px;
@@ -236,37 +239,101 @@ canvas {
     line-height: 1.1;
 }
 
+/* 左上角狀態 */
 .video-status-overlay {
     top: 14px;
     left: 14px;
     background: rgba(0, 0, 0, 0.6);
-    font-size: 16px;
-    font-weight: 700;
+    font-size: clamp(28px, 3.5vw, 48px);
+    padding: 14px 22px;
+    border-radius: 14px;
+    font-weight: 900;
 }
 
+/* 右上角正式倒數時間 */
 .video-timer-overlay {
     top: 14px;
     right: 14px;
-    background: rgba(0, 0, 0, 0.65);
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
+    background: rgba(0, 0, 0, 0.82);
+    font-size: clamp(72px, 9vw, 128px);
+    padding: 18px 28px;
+    border-radius: 16px;
+    color: #ffffff;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-shadow: 2px 2px 6px rgba(0,0,0,0.9);
 }
 
+/* 中央預備倒數 */
 .pre-countdown-overlay {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.55);
-    font-size: 96px;
+    background: rgba(0, 0, 0, 0.72);
+    font-size: clamp(120px, 18vw, 220px);
     font-weight: 900;
+    color: #ffffff;
     text-align: center;
-    padding: 20px 32px;
-    min-width: 220px;
-    box-shadow: 0 0 0 2px rgba(255,255,255,0.12);
+    padding: 24px 40px;
+    min-width: 280px;
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 6px solid rgba(255,255,255,0.9);
+    box-shadow: 0 0 20px rgba(0,0,0,0.45);
+    text-shadow: 3px 3px 10px rgba(0,0,0,1);
 }
 
-/* 倒數計時顯示 */
+/* 待機或正式錄影時隱藏中央預備倒數 */
+.pre-countdown-overlay.hidden {
+    display: none;
+}
+
+/* 狀態顏色 */
+.status-idle {
+    background: rgba(0,0,0,0.65) !important;
+    color: #ffffff !important;
+}
+
+.status-preparing {
+    background: #f59e0b !important;
+    color: #111827 !important;
+}
+
+.status-recording {
+    background: #e53e3e !important;
+    color: #ffffff !important;
+}
+
+.status-complete {
+    background: #22c55e !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 0 6px rgba(34,197,94,0.35);
+    animation: flash-complete 1s infinite;
+}
+
+.status-camera-off {
+    background: #718096 !important;
+    color: #ffffff !important;
+}
+
+@keyframes flash-complete {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
+    }
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 18px 8px rgba(34,197,94,0.45);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
+    }
+}
+
+/* 正式倒數計時輔助顯示 */
 .timer {
     font-size: 32px;
     font-weight: bold;
@@ -377,5 +444,21 @@ canvas {
 
     .timer {
         font-size: 36px;
+    }
+
+    .video-timer-overlay {
+        font-size: clamp(48px, 13vw, 88px);
+        padding: 12px 18px;
+    }
+
+    .video-status-overlay {
+        font-size: clamp(22px, 6vw, 36px);
+        padding: 10px 16px;
+    }
+
+    .pre-countdown-overlay {
+        font-size: clamp(80px, 24vw, 150px);
+        min-width: 220px;
+        min-height: 140px;
     }
 }
