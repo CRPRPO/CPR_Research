@@ -1,20 +1,21 @@
 // ==========================================
-// CPR 研究用網頁系統 V1.0.3
+// CPR 研究用網頁系統 V1.0.7
 // 使用純 HTML、CSS、JavaScript
 // ==========================================
 
 // ===== 全局變數 =====
-let mediaStream = null;           // 攝影機媒體流
-let mediaRecorder = null;          // 媒體錄製器
-let recordedChunks = [];           // 存放錄製的視頻分片
-let recordingStartTime = null;     // 錄製開始時間
-let timerInterval = null;          // 計時器區間 ID
-let prepInterval = null;           // 預備倒數區間 ID
-let recordingTimeout = null;       // 正式錄製自動停止定時
-let isRecording = false;           // 是否正在錄製中
-let isPreparing = false;           // 是否正在預備倒數中
+let mediaStream = null;               // 攝影機媒體流
+let mediaRecorder = null;             // 媒體錄製器
+let recordedChunks = [];              // 存放錄製的視頻分片
+let recordingStartTime = null;        // 錄製開始時間
+let timerInterval = null;             // 計時器區間 ID
+let prepInterval = null;              // 預備倒數區間 ID
+let recordingTimeout = null;          // 正式錄製自動停止定時
+let isRecording = false;              // 是否正在錄製中
+let isPreparing = false;              // 是否正在預備倒數中
 let currentRecordingDuration = 120000; // 當前選擇的錄影時長
-let lastRecordingLabel = '120s';   // 上一次錄製的時長標籤
+let lastRecordingLabel = '120s';      // 上一次錄製的時長標籤
+let audioContext = null;              // 完成提示音使用，不會錄進影片
 
 // 錄影長度設定
 const RECORDING_LENGTHS = {
@@ -22,6 +23,9 @@ const RECORDING_LENGTHS = {
     '60': 60000,
     '120': 120000
 };
+
+// 預備倒數秒數
+const PREP_COUNTDOWN_SECONDS = 10;
 
 // ===== 取得 DOM 元素 =====
 const subjectCodeInput = document.getElementById('subjectCode');
@@ -50,7 +54,7 @@ function showStatus(element, message, type) {
 
 // ===== 工具函數：格式化時間 =====
 function formatTime(milliseconds) {
-    const totalSeconds = Math.floor(milliseconds / 1000);
+    const totalSeconds = Math.ceil(milliseconds / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
@@ -58,7 +62,6 @@ function formatTime(milliseconds) {
 
 // ===== 工具函數：生成檔案名稱 =====
 function generateFilename(subjectCode, testPhase, lengthLabel) {
-    // 取得當前日期和時間
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -66,8 +69,6 @@ function generateFilename(subjectCode, testPhase, lengthLabel) {
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     
-    // 格式：受試者代碼_測驗階段_錄影長度_日期時間.webm
-    // 例如：S01_practice1_30s_20260602_1430.webm
     return `${subjectCode}_${testPhase}_${lengthLabel}_${year}${month}${date}_${hours}${minutes}.webm`;
 }
 
@@ -84,10 +85,59 @@ function getSelectedRecordingDuration() {
     return RECORDING_LENGTHS[getSelectedRecordingLength()] || RECORDING_LENGTHS['120'];
 }
 
-// ===== 啟動攝影機 =====
+// ===== 完成提示音 =====
+// 此聲音只由瀏覽器播放，不會錄進影片，因為 getUserMedia 設定 audio: false。
+function ensureAudioContext() {
+    if (!audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+            audioContext = new AudioContextClass();
+        }
+    }
+
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+}
+
+function playTone(startTime, frequency, duration) {
+    if (!audioContext) return;
+
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.4, startTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration + 0.02);
+}
+
+function playFinishBeep() {
+    try {
+        ensureAudioContext();
+        if (!audioContext) return;
+
+        const now = audioContext.currentTime;
+
+        playTone(now, 880, 0.18);
+        playTone(now + 0.28, 880, 0.18);
+        playTone(now + 0.56, 1046, 0.24);
+    } catch (error) {
+        console.warn('提示音播放失敗:', error);
+    }
+}
+
+// ===== 攝影機 =====
 async function startCamera() {
     try {
-        // 使用 getUserMedia API 請求攝影機權限
         mediaStream = await navigator.mediaDevices.getUserMedia({
             video: {
                 width: { ideal: 1280 },
@@ -98,58 +148,53 @@ async function startCamera() {
             audio: false
         });
         
-        // 將攝影機流傳送到 video 元素
         videoPreview.srcObject = mediaStream;
         
-        // 更新 UI 狀態
         startCameraBtn.disabled = true;
         stopCameraBtn.disabled = false;
         startRecordingBtn.disabled = false;
+
         updateStatusOverlay('待機');
         updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
+        updatePreCountdownOverlay('');
+
         showStatus(cameraStatus, '✓ 攝影機已啟動', 'success');
-        
     } catch (error) {
-        // 處理錯誤（例如使用者拒絕授權）
         console.error('無法啟動攝影機:', error);
         showStatus(cameraStatus, `✗ 錯誤: ${error.message}`, 'error');
     }
 }
 
-// ===== 停止攝影機 =====
 function stopCamera() {
-    // 停止所有媒體軌道
     if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
     }
     
-    // 清空視頻預覽
     videoPreview.srcObject = null;
     mediaStream = null;
     
-    // 停止正在進行的錄製
-    if (isRecording) {
+    if (isRecording || isPreparing) {
         stopRecording();
     }
     
-    // 更新 UI 狀態
     startCameraBtn.disabled = false;
     stopCameraBtn.disabled = true;
     startRecordingBtn.disabled = true;
     stopRecordingBtn.disabled = true;
+
     updateStatusOverlay('攝影機未啟動');
     updateTimerOverlay('00:00');
+    updatePreCountdownOverlay('');
+
     showStatus(cameraStatus, '✓ 攝影機已停止', 'info');
 }
 
-// ===== 開始錄製 =====
+// ===== 錄製 =====
 function startRecording() {
-    // 避免重複按下開始按鈕
     if (isPreparing || isRecording) {
         return;
     }
 
-    // 檢查是否已輸入受試者代碼和選擇測驗階段
     if (!subjectCodeInput.value.trim()) {
         showStatus(recordingStatus, '✗ 請輸入受試者代碼', 'error');
         return;
@@ -160,32 +205,36 @@ function startRecording() {
         return;
     }
     
-    // 檢查媒體流是否可用
     if (!mediaStream) {
         showStatus(recordingStatus, '✗ 攝影機尚未啟動', 'error');
         return;
     }
 
-    // 選擇錄影長度
+    // 使用者按鈕操作時先啟用 AudioContext，讓結束提示音能正常播放
+    ensureAudioContext();
+
     currentRecordingDuration = getSelectedRecordingDuration();
     lastRecordingLabel = getSelectedRecordingLabel();
 
-    // 鎖定輸入項目，避免錄製期間變動
     subjectCodeInput.disabled = true;
     testPhaseSelect.disabled = true;
     recordingLengthInputs.forEach(input => input.disabled = true);
     stopCameraBtn.disabled = true;
     startRecordingBtn.disabled = true;
     stopRecordingBtn.disabled = true;
+    downloadBtn.disabled = true;
 
-    // 開始 5 秒預備倒數
-    let prepSeconds = 5;
+    // 開始 10 秒預備倒數
+    let prepSeconds = PREP_COUNTDOWN_SECONDS;
+
     updateStatusOverlay('預備中');
     updateTimerOverlay(formatTime(currentRecordingDuration));
     updatePreCountdownOverlay(String(prepSeconds));
+
     isPreparing = true;
     prepCountdownDisplay.textContent = String(prepSeconds);
     showStatus(recordingStatus, '● 預備倒數中...', 'info');
+    showStatus(downloadStatus, '', 'info');
 
     prepInterval = setInterval(() => {
         prepSeconds -= 1;
@@ -198,10 +247,13 @@ function startRecording() {
 
         clearInterval(prepInterval);
         prepInterval = null;
+
         prepCountdownDisplay.textContent = '開始';
         updatePreCountdownOverlay('開始');
 
-        beginRecording();
+        setTimeout(() => {
+            beginRecording();
+        }, 350);
     }, 1000);
 }
 
@@ -212,18 +264,20 @@ function beginRecording() {
         return;
     }
 
-    // 重置錄製資料
     recordedChunks = [];
 
     const options = { mimeType: 'video/webm;codecs=vp9' };
+
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options.mimeType = 'video/webm;codecs=vp8';
     }
+
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
         options.mimeType = 'video/webm';
     }
 
     mediaRecorder = new MediaRecorder(mediaStream, options);
+    
     mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
             recordedChunks.push(event.data);
@@ -233,37 +287,44 @@ function beginRecording() {
     mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         window.recordedBlob = blob;
+
         downloadBtn.disabled = false;
+
+        updateStatusOverlay('✓ 錄製完成');
+        updateTimerOverlay('00:00');
+        updatePreCountdownOverlay('');
+
         showStatus(recordingStatus, '✓ 錄製已完成', 'success');
         showStatus(downloadStatus, '✓ 可以下載影片', 'success');
+
+        playFinishBeep();
     };
 
-    // 顯示開始後才正式啟動錄製
     mediaRecorder.start();
+
     recordingStartTime = Date.now();
     isRecording = true;
     isPreparing = false;
 
     stopRecordingBtn.disabled = false;
     timerDisplay.classList.add('recording');
+
     updateStatusOverlay('● 錄製中');
     updateTimerOverlay(formatTime(currentRecordingDuration));
     updatePreCountdownOverlay('');
+
+    prepCountdownDisplay.textContent = '';
     showStatus(recordingStatus, '● 錄製中...', 'info');
 
     updateTimer();
+
     timerInterval = setInterval(updateTimer, 100);
+
     recordingTimeout = setTimeout(() => {
         if (isRecording) {
             stopRecording();
         }
     }, currentRecordingDuration);
-
-    setTimeout(() => {
-        if (prepCountdownDisplay) {
-            prepCountdownDisplay.textContent = '';
-        }
-    }, 1000);
 }
 
 function resetPreparation() {
@@ -271,9 +332,11 @@ function resetPreparation() {
         clearInterval(prepInterval);
         prepInterval = null;
     }
+
     isPreparing = false;
     prepCountdownDisplay.textContent = '';
     updatePreCountdownOverlay('');
+
     subjectCodeInput.disabled = false;
     testPhaseSelect.disabled = false;
     recordingLengthInputs.forEach(input => input.disabled = false);
@@ -281,7 +344,6 @@ function resetPreparation() {
     startRecordingBtn.disabled = !mediaStream;
 }
 
-// ===== 停止錄製 =====
 function stopRecording() {
     if (!isRecording && !isPreparing) {
         return;
@@ -302,9 +364,7 @@ function stopRecording() {
         timerInterval = null;
     }
 
-    if (isRecording && mediaRecorder) {
-        mediaRecorder.stop();
-    }
+    const wasRecording = isRecording;
 
     isRecording = false;
     isPreparing = false;
@@ -314,8 +374,13 @@ function stopRecording() {
     timerDisplay.classList.remove('recording');
     prepCountdownDisplay.textContent = '';
     updatePreCountdownOverlay('');
-    updateStatusOverlay('錄製完成');
-    updateTimerOverlay('00:00');
+
+    if (wasRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    } else {
+        updateStatusOverlay('待機');
+        updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
+    }
 
     startRecordingBtn.disabled = !mediaStream;
     stopRecordingBtn.disabled = true;
@@ -324,7 +389,11 @@ function stopRecording() {
     recordingLengthInputs.forEach(input => input.disabled = false);
     stopCameraBtn.disabled = false;
 
-    showStatus(recordingStatus, '✓ 錄製已停止', 'success');
+    if (wasRecording) {
+        showStatus(recordingStatus, '✓ 錄製已停止', 'success');
+    } else {
+        showStatus(recordingStatus, '準備就緒', 'info');
+    }
 }
 
 // ===== 更新倒數計時器 =====
@@ -333,20 +402,37 @@ function updateTimer() {
         return;
     }
     
-    // 計算已經過的時間
     const elapsed = Date.now() - recordingStartTime;
-    
-    // 計算剩餘時間
     const remaining = Math.max(0, currentRecordingDuration - elapsed);
     
-    // 更新計時器顯示
     timerDisplay.textContent = formatTime(remaining);
     updateTimerOverlay(formatTime(remaining));
 }
 
+// ===== 攝影機畫面疊加資訊 =====
 function updateStatusOverlay(text) {
-    if (videoStatusOverlay) {
-        videoStatusOverlay.textContent = text;
+    if (!videoStatusOverlay) return;
+
+    videoStatusOverlay.textContent = text;
+
+    videoStatusOverlay.classList.remove(
+        'status-idle',
+        'status-preparing',
+        'status-recording',
+        'status-complete',
+        'status-camera-off'
+    );
+
+    if (text === '待機') {
+        videoStatusOverlay.classList.add('status-idle');
+    } else if (text === '預備中') {
+        videoStatusOverlay.classList.add('status-preparing');
+    } else if (text.includes('錄製中')) {
+        videoStatusOverlay.classList.add('status-recording');
+    } else if (text.includes('錄製完成')) {
+        videoStatusOverlay.classList.add('status-complete');
+    } else if (text === '攝影機未啟動') {
+        videoStatusOverlay.classList.add('status-camera-off');
     }
 }
 
@@ -357,37 +443,38 @@ function updateTimerOverlay(text) {
 }
 
 function updatePreCountdownOverlay(text) {
-    if (preCountdownOverlay) {
+    if (!preCountdownOverlay) return;
+
+    if (text && String(text).trim() !== '') {
         preCountdownOverlay.textContent = text;
+        preCountdownOverlay.classList.remove('hidden');
+    } else {
+        preCountdownOverlay.textContent = '';
+        preCountdownOverlay.classList.add('hidden');
     }
 }
 
 // ===== 下載影片 =====
 function downloadVideo() {
-    // 檢查是否有錄製完成的影片
     if (!window.recordedBlob) {
         showStatus(downloadStatus, '✗ 沒有可下載的影片', 'error');
         return;
     }
     
-    // 生成檔案名稱
     const filename = generateFilename(
         subjectCodeInput.value.trim(),
         testPhaseSelect.value,
         lastRecordingLabel
     );
     
-    // 創建下載連結
     const url = URL.createObjectURL(window.recordedBlob);
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     
-    // 觸發下載
     document.body.appendChild(link);
     link.click();
     
-    // 清理資源
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
@@ -401,18 +488,29 @@ startRecordingBtn.addEventListener('click', startRecording);
 stopRecordingBtn.addEventListener('click', stopRecording);
 downloadBtn.addEventListener('click', downloadVideo);
 
-// ===== 初始化 =====
-document.addEventListener('DOMContentLoaded', () => {
-    // 初始化計時器顯示
-    timerDisplay.textContent = '00:00';
-    prepCountdownDisplay.textContent = '準備就緒';
-    updateStatusOverlay('待機');
-    updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
-    updatePreCountdownOverlay('準備就緒');
-    
-    // 初始化狀態訊息
-    showStatus(cameraStatus, '請啟動攝影機', 'info');
-    showStatus(recordingStatus, '準備就緒', 'info');
+recordingLengthInputs.forEach(input => {
+    input.addEventListener('change', () => {
+        if (!isRecording && !isPreparing) {
+            updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
+            timerDisplay.textContent = formatTime(getSelectedRecordingDuration());
+        }
+    });
 });
 
-console.log('CPR 研究用網頁系統 V1.0.3 已載入');
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', () => {
+    timerDisplay.textContent = formatTime(getSelectedRecordingDuration());
+    prepCountdownDisplay.textContent = '準備就緒';
+
+    updateStatusOverlay('待機');
+    updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
+
+    // 待機時不要在攝影機畫面中央顯示「準備就緒」
+    updatePreCountdownOverlay('');
+    
+    showStatus(cameraStatus, '請啟動攝影機', 'info');
+    showStatus(recordingStatus, '準備就緒', 'info');
+    showStatus(downloadStatus, '', 'info');
+});
+
+console.log('CPR 研究用網頁系統 V1.0.7 已載入');
