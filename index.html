@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CPR 研究用網頁系統 V1.0.9</title>
+    <title>CPR 研究用網頁系統 V2.0.0</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <h1>CPR 研究用網頁系統 V1.0.9</h1>
+        <h1>CPR 研究用網頁系統 V2.0.0</h1>
 
         <div class="settings-section">
             <h2>設定參數</h2>
@@ -31,47 +31,59 @@
         </div>
 
         <div class="camera-section">
-            <h2>攝影機</h2>
+            <h2>攝影機與骨架偵測</h2>
+
             <div class="form-group">
                 <label for="cameraSelect">攝影機來源:</label>
                 <select id="cameraSelect">
                     <option value="">預設攝影機（優先後鏡頭 / 外接鏡頭）</option>
                 </select>
             </div>
+
             <div class="form-group">
                 <label for="qualityMode">畫質模式:</label>
                 <select id="qualityMode">
                     <option value="auto">自動模式（瀏覽器自行協商）</option>
                     <option value="640x480_30">640 × 480 / 30fps（穩定優先）</option>
-                    <option value="800x600_30">800 × 600 / 30fps（4:3 中等畫質）</option>
-                    <option value="1280x720_20">1280 × 720 / 20fps（720p 低幀率）</option>
                     <option value="1280x720_30" selected>1280 × 720 / 30fps（預設）</option>
-                    <option value="1920x1080_25">1920 × 1080 / 25fps（高畫質測試）</option>
                 </select>
             </div>
+
+            <div class="duration-options skeleton-options">
+                <span class="duration-label">骨架顯示：</span>
+                <label class="duration-option">
+                    <input type="checkbox" id="showSkeleton" checked>
+                    顯示肩、肘、腕、髖骨架
+                </label>
+            </div>
+
             <div class="button-group">
                 <button id="refreshCamerasBtn" class="btn btn-secondary">重新整理攝影機清單</button>
                 <button id="startCameraBtn" class="btn btn-primary">啟動攝影機</button>
                 <button id="stopCameraBtn" class="btn btn-danger" disabled>停止攝影機</button>
             </div>
+
             <div class="camera-warning">
                 <p><strong>⚠️ 重要提醒：</strong></p>
+                <p>V2.0.0 已加入 MediaPipe 即時骨架顯示，但本版先不做角度判斷、頻率計算或 CSV 匯出。</p>
+                <p>本版錄出的 WebM 仍是原始攝影機影像，不會把骨架線錄進影片。骨架疊圖錄影將留到後續版本。</p>
                 <p>正式測試前請關閉背景模糊、自動取景、人像置中、臉部追蹤等攝影機效果，並確認畫面可完整拍到受試者側面、手臂、軀幹與 CPR 模擬人。</p>
-                <p>若使用外接 USB 攝影機，建議先插入攝影機，再按「重新整理攝影機清單」。若畫面閃爍或掉幀，請先嘗試「640 × 480 / 30fps」或「自動模式」。</p>
-                <p>CPR 約每秒 1.7–2 次按壓，建議以穩定 30fps 作為優先目標；若 720p/30fps 不穩，請降低解析度而不是勉強使用高畫質。</p>
             </div>
+
             <div class="video-container">
                 <video id="videoPreview" playsinline autoplay muted></video>
-                <canvas id="videoCanvas" style="display: none;"></canvas>
+                <canvas id="videoCanvas"></canvas>
+
                 <div id="videoStatusOverlay" class="video-overlay video-status-overlay status-idle">待機</div>
                 <div id="videoTimerOverlay" class="video-overlay video-timer-overlay timer-large">02:00</div>
                 <div id="preCountdownOverlay" class="video-overlay pre-countdown-overlay hidden"></div>
             </div>
+
             <div id="cameraStatus" class="status-message"></div>
         </div>
 
         <div class="diagnostic-section">
-            <h2>攝影機診斷</h2>
+            <h2>攝影機與骨架診斷</h2>
             <div class="diagnostic-grid">
                 <div class="diagnostic-item"><span class="diagnostic-label">目前攝影機</span><span id="diagCameraLabel" class="diagnostic-value">尚未啟動</span></div>
                 <div class="diagnostic-item"><span class="diagnostic-label">要求模式</span><span id="diagRequestedMode" class="diagnostic-value">1280 × 720 / 30fps</span></div>
@@ -79,6 +91,8 @@
                 <div class="diagnostic-item"><span class="diagnostic-label">實際幀率</span><span id="diagFrameRate" class="diagnostic-value">尚未啟動</span></div>
                 <div class="diagnostic-item"><span class="diagnostic-label">影像比例</span><span id="diagAspectRatio" class="diagnostic-value">尚未啟動</span></div>
                 <div class="diagnostic-item"><span class="diagnostic-label">目前錄影格式</span><span id="diagMimeType" class="diagnostic-value">尚未錄影</span></div>
+                <div class="diagnostic-item"><span class="diagnostic-label">骨架狀態</span><span id="diagPoseStatus" class="diagnostic-value">尚未啟動</span></div>
+                <div class="diagnostic-item"><span class="diagnostic-label">骨架偵測 FPS</span><span id="diagPoseFps" class="diagnostic-value">尚未啟動</span></div>
                 <div class="diagnostic-item diagnostic-wide"><span class="diagnostic-label">攝影機能力</span><pre id="diagCapabilities" class="diagnostic-pre">啟動攝影機後顯示。不同瀏覽器與攝影機支援程度不同。</pre></div>
                 <div class="diagnostic-item diagnostic-wide"><span class="diagnostic-label">測試建議</span><div id="diagRecommendation" class="diagnostic-value diagnostic-advice">若外接鏡頭閃爍，請先測 640×480/30fps，再測自動模式。</div></div>
             </div>
@@ -112,6 +126,8 @@
             <div id="downloadStatus" class="status-message"></div>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

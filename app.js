@@ -1,6 +1,6 @@
 // ==========================================
-// CPR 研究用網頁系統 V1.0.9
-// 使用純 HTML、CSS、JavaScript
+// CPR 研究用網頁系統 V2.0.0
+// 使用純 HTML、CSS、JavaScript + MediaPipe Pose
 // ==========================================
 
 let mediaStream = null;
@@ -17,16 +17,21 @@ let lastRecordingLabel = '120s';
 let audioContext = null;
 let currentRecorderMimeType = '尚未錄影';
 
+let pose = null;
+let poseRunning = false;
+let poseRafId = null;
+let lastPoseTime = 0;
+let poseFrameCount = 0;
+let poseFpsLastTime = 0;
+let poseFps = 0;
+
 const RECORDING_LENGTHS = { '30': 30000, '60': 60000, '120': 120000 };
 const PREP_COUNTDOWN_SECONDS = 10;
 
 const QUALITY_MODES = {
     auto: { label: '自動模式', constraints: {} },
     '640x480_30': { label: '640 × 480 / 30fps', constraints: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } } },
-    '800x600_30': { label: '800 × 600 / 30fps', constraints: { width: { ideal: 800 }, height: { ideal: 600 }, frameRate: { ideal: 30, max: 30 } } },
-    '1280x720_20': { label: '1280 × 720 / 20fps', constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 20, max: 20 } } },
-    '1280x720_30': { label: '1280 × 720 / 30fps', constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } },
-    '1920x1080_25': { label: '1920 × 1080 / 25fps', constraints: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 25, max: 25 } } }
+    '1280x720_30': { label: '1280 × 720 / 30fps', constraints: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } }
 };
 
 const subjectCodeInput = document.getElementById('subjectCode');
@@ -40,6 +45,8 @@ const startRecordingBtn = document.getElementById('startRecordingBtn');
 const stopRecordingBtn = document.getElementById('stopRecordingBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const videoPreview = document.getElementById('videoPreview');
+const videoCanvas = document.getElementById('videoCanvas');
+const canvasCtx = videoCanvas.getContext('2d');
 const videoStatusOverlay = document.getElementById('videoStatusOverlay');
 const videoTimerOverlay = document.getElementById('videoTimerOverlay');
 const preCountdownOverlay = document.getElementById('preCountdownOverlay');
@@ -47,6 +54,7 @@ const timerDisplay = document.getElementById('timerDisplay');
 const prepCountdownDisplay = document.getElementById('prepCountdown');
 const recordingLengthInputs = document.querySelectorAll('input[name="recordingLength"]');
 const timerSizeInputs = document.querySelectorAll('input[name="timerSize"]');
+const showSkeletonCheckbox = document.getElementById('showSkeleton');
 const cameraStatus = document.getElementById('cameraStatus');
 const recordingStatus = document.getElementById('recordingStatus');
 const downloadStatus = document.getElementById('downloadStatus');
@@ -57,6 +65,8 @@ const diagResolution = document.getElementById('diagResolution');
 const diagFrameRate = document.getElementById('diagFrameRate');
 const diagAspectRatio = document.getElementById('diagAspectRatio');
 const diagMimeType = document.getElementById('diagMimeType');
+const diagPoseStatus = document.getElementById('diagPoseStatus');
+const diagPoseFps = document.getElementById('diagPoseFps');
 const diagCapabilities = document.getElementById('diagCapabilities');
 const diagRecommendation = document.getElementById('diagRecommendation');
 
@@ -101,7 +111,6 @@ function getSelectedTimerSize() {
 }
 
 function applyTimerSize() {
-    if (!videoTimerOverlay) return;
     videoTimerOverlay.classList.remove('timer-normal', 'timer-large');
     videoTimerOverlay.classList.add(getSelectedTimerSize() === 'normal' ? 'timer-normal' : 'timer-large');
 }
@@ -157,8 +166,10 @@ function resetDiagnostics() {
     diagFrameRate.textContent = '尚未啟動';
     diagAspectRatio.textContent = '尚未啟動';
     diagMimeType.textContent = currentRecorderMimeType || '尚未錄影';
+    diagPoseStatus.textContent = '尚未啟動';
+    diagPoseFps.textContent = '尚未啟動';
     diagCapabilities.textContent = '啟動攝影機後顯示。不同瀏覽器與攝影機支援程度不同。';
-    diagRecommendation.textContent = '若外接鏡頭閃爍，請先測 640×480/30fps，再測自動模式。';
+    diagRecommendation.textContent = 'V2.0.0 先測骨架是否穩定顯示，再進一步做角度與頻率判斷。';
 }
 
 function safeRound(value, decimals = 2) {
@@ -185,10 +196,6 @@ function summarizeCapabilities(capabilities) {
     lines.push(`frameRate: ${formatRange(capabilities.frameRate)}`);
     if (capabilities.aspectRatio) lines.push(`aspectRatio: ${formatRange(capabilities.aspectRatio)}`);
     if (capabilities.facingMode) lines.push(`facingMode: ${formatRange(capabilities.facingMode)}`);
-    if (capabilities.focusMode) lines.push(`focusMode: ${formatRange(capabilities.focusMode)}`);
-    if (capabilities.exposureMode) lines.push(`exposureMode: ${formatRange(capabilities.exposureMode)}`);
-    if (capabilities.whiteBalanceMode) lines.push(`whiteBalanceMode: ${formatRange(capabilities.whiteBalanceMode)}`);
-    if (capabilities.zoom) lines.push(`zoom: ${formatRange(capabilities.zoom)}`);
     return lines.join('\\n');
 }
 
@@ -212,22 +219,14 @@ function updateDiagnosticsFromTrack(track) {
     diagAspectRatio.textContent = String(aspectRatio);
     diagMimeType.textContent = currentRecorderMimeType || '尚未錄影';
     diagCapabilities.textContent = summarizeCapabilities(capabilities);
-    updateDiagnosticRecommendation(settings);
-}
 
-function updateDiagnosticRecommendation(settings) {
-    const width = settings.width;
-    const height = settings.height;
-    const frameRate = settings.frameRate;
-    let advice = '影像穩定性優先於最高解析度。請以 30 秒測試比較閃爍與掉幀。';
-    if (frameRate && frameRate < 24) {
-        advice = '目前實際幀率低於 24fps。若要分析每秒約 2 次按壓，建議改測 640×480/30fps 或自動模式。';
-    } else if (frameRate && frameRate >= 29 && width >= 640) {
-        advice = '目前幀率接近 30fps，適合先做 CPR 頻率與姿勢偵測測試。若仍有閃爍，請檢查曝光、防閃爍 60Hz 與室內 LED 燈。';
-    } else if (width >= 1280 && height >= 720) {
-        advice = '目前解析度足夠。若畫面閃爍或延遲，請測 640×480/30fps 是否更穩。';
+    if (settings.frameRate && settings.frameRate < 24) {
+        diagRecommendation.textContent = '目前實際幀率低於 24fps。建議改測 640×480/30fps 或自動模式。';
+    } else if (settings.frameRate && settings.frameRate >= 29) {
+        diagRecommendation.textContent = '目前幀率接近 30fps，適合測骨架穩定度。若仍閃爍，請檢查曝光、防閃爍 60Hz 與室內 LED 燈。';
+    } else {
+        diagRecommendation.textContent = '請觀察肩、肘、腕、髖骨架點是否穩定，尤其是手腕與手肘是否跳動。';
     }
-    diagRecommendation.textContent = advice;
 }
 
 async function refreshCameraList() {
@@ -256,11 +255,7 @@ async function refreshCameraList() {
             cameraSelect.value = currentValue;
         }
 
-        if (videoInputs.length === 0) {
-            showStatus(cameraStatus, '尚未偵測到攝影機。請確認攝影機已連接，並允許瀏覽器使用攝影機。', 'info');
-        } else {
-            showStatus(cameraStatus, `✓ 已找到 ${videoInputs.length} 個攝影機來源`, 'success');
-        }
+        showStatus(cameraStatus, videoInputs.length ? `✓ 已找到 ${videoInputs.length} 個攝影機來源` : '尚未偵測到攝影機。請確認攝影機已連接，並允許瀏覽器使用攝影機。', videoInputs.length ? 'success' : 'info');
     } catch (error) {
         console.error('取得攝影機清單失敗:', error);
         showStatus(cameraStatus, `✗ 取得攝影機清單失敗: ${error.message}`, 'error');
@@ -279,16 +274,164 @@ function buildVideoConstraints() {
     return constraints;
 }
 
+async function initPose() {
+    if (pose) return pose;
+    if (!window.Pose) {
+        throw new Error('MediaPipe Pose 尚未載入，請確認網路連線或 CDN 是否可用。');
+    }
+    pose = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+    pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        smoothSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    pose.onResults(onPoseResults);
+    return pose;
+}
+
+function resizeCanvasToVideo() {
+    const width = videoPreview.videoWidth || 1280;
+    const height = videoPreview.videoHeight || 720;
+    if (videoCanvas.width !== width || videoCanvas.height !== height) {
+        videoCanvas.width = width;
+        videoCanvas.height = height;
+    }
+}
+
+function startPoseLoop() {
+    if (poseRunning) return;
+    poseRunning = true;
+    poseFrameCount = 0;
+    poseFpsLastTime = performance.now();
+    diagPoseStatus.textContent = '骨架偵測啟動中';
+
+    const loop = async () => {
+        if (!poseRunning || !mediaStream) return;
+        if (videoPreview.readyState >= 2) {
+            try {
+                resizeCanvasToVideo();
+                await pose.send({ image: videoPreview });
+                poseFrameCount++;
+                const now = performance.now();
+                if (now - poseFpsLastTime >= 1000) {
+                    poseFps = poseFrameCount / ((now - poseFpsLastTime) / 1000);
+                    diagPoseFps.textContent = `${safeRound(poseFps, 1)} fps`;
+                    poseFrameCount = 0;
+                    poseFpsLastTime = now;
+                }
+            } catch (error) {
+                console.warn('MediaPipe 偵測錯誤:', error);
+                diagPoseStatus.textContent = '骨架偵測錯誤';
+            }
+        }
+        poseRafId = requestAnimationFrame(loop);
+    };
+    loop();
+}
+
+function stopPoseLoop() {
+    poseRunning = false;
+    if (poseRafId) cancelAnimationFrame(poseRafId);
+    poseRafId = null;
+    clearCanvas();
+    diagPoseStatus.textContent = '骨架偵測已停止';
+    diagPoseFps.textContent = '尚未啟動';
+}
+
+function clearCanvas() {
+    canvasCtx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+}
+
+function drawPoint(lm, color, label) {
+    const x = lm.x * videoCanvas.width;
+    const y = lm.y * videoCanvas.height;
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 9, 0, Math.PI * 2);
+    canvasCtx.fillStyle = color;
+    canvasCtx.fill();
+    canvasCtx.lineWidth = 3;
+    canvasCtx.strokeStyle = '#ffffff';
+    canvasCtx.stroke();
+    if (label) {
+        canvasCtx.font = '20px Arial';
+        canvasCtx.fillStyle = '#ffffff';
+        canvasCtx.fillText(label, x + 10, y - 10);
+    }
+}
+
+function drawLine(a, b, color) {
+    const ax = a.x * videoCanvas.width;
+    const ay = a.y * videoCanvas.height;
+    const bx = b.x * videoCanvas.width;
+    const by = b.y * videoCanvas.height;
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(ax, ay);
+    canvasCtx.lineTo(bx, by);
+    canvasCtx.lineWidth = 7;
+    canvasCtx.strokeStyle = color;
+    canvasCtx.stroke();
+}
+
+function validLm(lm) {
+    return lm && (lm.visibility === undefined || lm.visibility >= 0.35);
+}
+
+function drawSide(landmarks, side, color) {
+    const idx = side === 'L'
+        ? { shoulder: 11, elbow: 13, wrist: 15, hip: 23 }
+        : { shoulder: 12, elbow: 14, wrist: 16, hip: 24 };
+    const shoulder = landmarks[idx.shoulder];
+    const elbow = landmarks[idx.elbow];
+    const wrist = landmarks[idx.wrist];
+    const hip = landmarks[idx.hip];
+
+    if (validLm(wrist) && validLm(elbow)) drawLine(wrist, elbow, color);
+    if (validLm(elbow) && validLm(shoulder)) drawLine(elbow, shoulder, color);
+    if (validLm(shoulder) && validLm(hip)) drawLine(shoulder, hip, color);
+
+    if (validLm(shoulder)) drawPoint(shoulder, color, `${side}肩`);
+    if (validLm(elbow)) drawPoint(elbow, color, `${side}肘`);
+    if (validLm(wrist)) drawPoint(wrist, color, `${side}腕`);
+    if (validLm(hip)) drawPoint(hip, color, `${side}髖`);
+}
+
+function onPoseResults(results) {
+    clearCanvas();
+    if (!showSkeletonCheckbox.checked) {
+        diagPoseStatus.textContent = '骨架顯示關閉';
+        return;
+    }
+    if (!results.poseLandmarks) {
+        diagPoseStatus.textContent = '未偵測到人體';
+        return;
+    }
+    diagPoseStatus.textContent = '已偵測到人體骨架';
+    drawSide(results.poseLandmarks, 'L', '#00e5ff');
+    drawSide(results.poseLandmarks, 'R', '#ffeb3b');
+}
+
 async function startCamera() {
     try {
         if (mediaStream) stopCamera();
         mediaStream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints(), audio: false });
         videoPreview.srcObject = mediaStream;
+        await new Promise(resolve => {
+            if (videoPreview.readyState >= 1) resolve();
+            else videoPreview.onloadedmetadata = resolve;
+        });
+        resizeCanvasToVideo();
+
         startCameraBtn.disabled = true;
         stopCameraBtn.disabled = false;
         startRecordingBtn.disabled = false;
         cameraSelect.disabled = true;
         qualityModeSelect.disabled = true;
+
         updateStatusOverlay('待機');
         updateTimerOverlay(formatTime(getSelectedRecordingDuration()));
         updatePreCountdownOverlay('');
@@ -296,17 +439,21 @@ async function startCamera() {
 
         const track = mediaStream.getVideoTracks()[0];
         updateDiagnosticsFromTrack(track);
-        showStatus(cameraStatus, '✓ 攝影機已啟動', 'success');
+        showStatus(cameraStatus, '✓ 攝影機已啟動，MediaPipe 骨架偵測準備中', 'success');
+
+        await initPose();
+        startPoseLoop();
 
         await refreshCameraList();
         cameraSelect.disabled = true;
     } catch (error) {
-        console.error('無法啟動攝影機:', error);
+        console.error('無法啟動攝影機或骨架偵測:', error);
         showStatus(cameraStatus, `✗ 錯誤: ${error.message}`, 'error');
     }
 }
 
 function stopCamera() {
+    stopPoseLoop();
     if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
     videoPreview.srcObject = null;
     mediaStream = null;
@@ -338,7 +485,6 @@ function startRecording() {
         showStatus(recordingStatus, '✗ 攝影機尚未啟動', 'error');
         return;
     }
-
     ensureAudioContext();
     applyTimerSize();
     currentRecordingDuration = getSelectedRecordingDuration();
@@ -383,7 +529,6 @@ function beginRecording() {
         resetPreparation();
         return;
     }
-
     recordedChunks = [];
     const options = { mimeType: 'video/webm;codecs=vp9' };
     if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = 'video/webm;codecs=vp8';
@@ -399,14 +544,13 @@ function beginRecording() {
     currentRecorderMimeType = mediaRecorder.mimeType || options.mimeType || '瀏覽器預設';
     diagMimeType.textContent = currentRecorderMimeType;
 
-    mediaRecorder.ondataavailable = (event) => {
+    mediaRecorder.ondataavailable = event => {
         if (event.data.size > 0) recordedChunks.push(event.data);
     };
 
     mediaRecorder.onstop = () => {
         const blobType = mediaRecorder.mimeType || 'video/webm';
-        const blob = new Blob(recordedChunks, { type: blobType });
-        window.recordedBlob = blob;
+        window.recordedBlob = new Blob(recordedChunks, { type: blobType });
         downloadBtn.disabled = false;
         updateStatusOverlay('✓ 錄製完成');
         updateTimerOverlay('00:00');
@@ -427,19 +571,14 @@ function beginRecording() {
     updatePreCountdownOverlay('');
     prepCountdownDisplay.textContent = '';
     showStatus(recordingStatus, '● 錄製中...', 'info');
-
     updateTimer();
     timerInterval = setInterval(updateTimer, 100);
-    recordingTimeout = setTimeout(() => {
-        if (isRecording) stopRecording();
-    }, currentRecordingDuration);
+    recordingTimeout = setTimeout(() => { if (isRecording) stopRecording(); }, currentRecordingDuration);
 }
 
 function resetPreparation() {
-    if (prepInterval) {
-        clearInterval(prepInterval);
-        prepInterval = null;
-    }
+    if (prepInterval) clearInterval(prepInterval);
+    prepInterval = null;
     isPreparing = false;
     prepCountdownDisplay.textContent = '';
     updatePreCountdownOverlay('');
@@ -453,23 +592,13 @@ function resetPreparation() {
 
 function stopRecording() {
     if (!isRecording && !isPreparing) return;
-    if (prepInterval) {
-        clearInterval(prepInterval);
-        prepInterval = null;
-    }
-    if (recordingTimeout) {
-        clearTimeout(recordingTimeout);
-        recordingTimeout = null;
-    }
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
+    if (prepInterval) clearInterval(prepInterval);
+    if (recordingTimeout) clearTimeout(recordingTimeout);
+    if (timerInterval) clearInterval(timerInterval);
+    prepInterval = null; recordingTimeout = null; timerInterval = null;
 
     const wasRecording = isRecording;
-    isRecording = false;
-    isPreparing = false;
-    recordingStartTime = null;
+    isRecording = false; isPreparing = false; recordingStartTime = null;
     timerDisplay.textContent = '00:00';
     timerDisplay.classList.remove('recording');
     prepCountdownDisplay.textContent = '';
@@ -489,7 +618,6 @@ function stopRecording() {
     recordingLengthInputs.forEach(input => input.disabled = false);
     timerSizeInputs.forEach(input => input.disabled = false);
     stopCameraBtn.disabled = false;
-
     showStatus(recordingStatus, wasRecording ? '✓ 錄製已停止' : '準備就緒', wasRecording ? 'success' : 'info');
 }
 
@@ -502,7 +630,6 @@ function updateTimer() {
 }
 
 function updateStatusOverlay(text) {
-    if (!videoStatusOverlay) return;
     videoStatusOverlay.textContent = text;
     videoStatusOverlay.classList.remove('status-idle', 'status-preparing', 'status-recording', 'status-complete', 'status-camera-off');
     if (text === '待機') videoStatusOverlay.classList.add('status-idle');
@@ -512,12 +639,9 @@ function updateStatusOverlay(text) {
     else if (text === '攝影機未啟動') videoStatusOverlay.classList.add('status-camera-off');
 }
 
-function updateTimerOverlay(text) {
-    if (videoTimerOverlay) videoTimerOverlay.textContent = text;
-}
+function updateTimerOverlay(text) { videoTimerOverlay.textContent = text; }
 
 function updatePreCountdownOverlay(text) {
-    if (!preCountdownOverlay) return;
     if (text && String(text).trim() !== '') {
         preCountdownOverlay.textContent = text;
         preCountdownOverlay.classList.remove('hidden');
@@ -550,6 +674,7 @@ stopCameraBtn.addEventListener('click', stopCamera);
 startRecordingBtn.addEventListener('click', startRecording);
 stopRecordingBtn.addEventListener('click', stopRecording);
 downloadBtn.addEventListener('click', downloadVideo);
+showSkeletonCheckbox.addEventListener('change', () => { if (!showSkeletonCheckbox.checked) clearCanvas(); });
 
 recordingLengthInputs.forEach(input => {
     input.addEventListener('change', () => {
@@ -561,11 +686,7 @@ recordingLengthInputs.forEach(input => {
     });
 });
 
-timerSizeInputs.forEach(input => {
-    input.addEventListener('change', () => {
-        if (!isRecording && !isPreparing) applyTimerSize();
-    });
-});
+timerSizeInputs.forEach(input => input.addEventListener('change', () => { if (!isRecording && !isPreparing) applyTimerSize(); }));
 
 qualityModeSelect.addEventListener('change', () => {
     if (!isRecording && !isPreparing) {
@@ -586,10 +707,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePreCountdownOverlay('');
     applyTimerSize();
     resetDiagnostics();
-    showStatus(cameraStatus, '請啟動攝影機。若要使用外接 USB 攝影機，請先插上後按「重新整理攝影機清單」。', 'info');
+    showStatus(cameraStatus, '請啟動攝影機。V2.0.0 會載入 MediaPipe 並顯示肩、肘、腕、髖骨架。', 'info');
     showStatus(recordingStatus, '準備就緒', 'info');
     showStatus(downloadStatus, '', 'info');
     refreshCameraList();
 });
 
-console.log('CPR 研究用網頁系統 V1.0.9 已載入');
+console.log('CPR 研究用網頁系統 V2.0.0 已載入');
