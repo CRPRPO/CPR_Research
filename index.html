@@ -3,19 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CPR 研究用網頁系統 V2.0.1</title>
+    <title>CPR 研究用網頁系統 V1.0.8</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <h1>CPR 研究用網頁系統 V2.0.1</h1>
+        <h1>CPR 研究用網頁系統 V1.0.8</h1>
 
+        <!-- 設定區域 -->
         <div class="settings-section">
             <h2>設定參數</h2>
+
             <div class="form-group">
                 <label for="subjectCode">受試者代碼:</label>
-                <input type="text" id="subjectCode" placeholder="例如: S01" maxlength="10">
+                <input 
+                    type="text" 
+                    id="subjectCode" 
+                    placeholder="例如: S01"
+                    maxlength="10"
+                >
             </div>
+
             <div class="form-group">
                 <label for="testPhase">測驗階段:</label>
                 <select id="testPhase">
@@ -30,8 +38,9 @@
             </div>
         </div>
 
+        <!-- 攝影機控制區域 -->
         <div class="camera-section">
-            <h2>攝影機與骨架錄影</h2>
+            <h2>攝影機</h2>
 
             <div class="form-group">
                 <label for="cameraSelect">攝影機來源:</label>
@@ -40,39 +49,21 @@
                 </select>
             </div>
 
-            <div class="form-group">
-                <label for="qualityMode">畫質模式:</label>
-                <select id="qualityMode">
-                    <option value="auto">自動模式（瀏覽器自行協商）</option>
-                    <option value="640x480_30">640 × 480 / 30fps（骨架穩定優先）</option>
-                    <option value="1280x720_30" selected>1280 × 720 / 30fps（研究測試優先）</option>
-                </select>
-            </div>
-
-            <div class="duration-options skeleton-options">
-                <span class="duration-label">骨架錄影：</span>
-                <label class="duration-option">
-                    <input type="checkbox" id="showSkeleton" checked>
-                    顯示並錄進肩、肘、腕、髖骨架
-                </label>
-            </div>
-
             <div class="button-group">
                 <button id="refreshCamerasBtn" class="btn btn-secondary">重新整理攝影機清單</button>
-                <button id="startCameraBtn" class="btn btn-primary">啟動攝影機與骨架</button>
+                <button id="startCameraBtn" class="btn btn-primary">啟動攝影機</button>
                 <button id="stopCameraBtn" class="btn btn-danger" disabled>停止攝影機</button>
             </div>
 
             <div class="camera-warning">
                 <p><strong>⚠️ 重要提醒：</strong></p>
-                <p>V2.0.1 會把「攝影機畫面 + MediaPipe 骨架線」一起錄進下載影片。這版適合先確認骨架是否能輔助研究討論。</p>
-                <p>本版仍不做角度判斷、頻率計算或 CSV 匯出。後續若穩定，再將「原始影片」與「骨架疊圖影片」分開儲存。</p>
-                <p>若骨架跳動，請優先使用 640×480 / 30fps，並讓畫面完整拍到受試者側面、手臂、軀幹、髖部與 CPR 模擬人。</p>
+                <p>正式測試前請關閉背景模糊、自動取景、人像置中、臉部追蹤等攝影機效果，並確認畫面可完整拍到受試者側面、手臂、軀幹與 CPR 模擬人。</p>
+                <p>若要使用 USB 外接攝影機，建議先插入 USB 攝影機，再按「重新整理攝影機清單」。手機測試時可在清單中選擇前鏡頭或後鏡頭。</p>
             </div>
 
             <div class="video-container">
                 <video id="videoPreview" playsinline autoplay muted></video>
-                <canvas id="outputCanvas"></canvas>
+                <canvas id="videoCanvas" style="display: none;"></canvas>
 
                 <div id="videoStatusOverlay" class="video-overlay video-status-overlay status-idle">待機</div>
                 <div id="videoTimerOverlay" class="video-overlay video-timer-overlay timer-large">02:00</div>
@@ -82,52 +73,56 @@
             <div id="cameraStatus" class="status-message"></div>
         </div>
 
-        <div class="diagnostic-section">
-            <h2>攝影機與骨架診斷</h2>
-            <div class="diagnostic-grid">
-                <div class="diagnostic-item"><span class="diagnostic-label">目前攝影機</span><span id="diagCameraLabel" class="diagnostic-value">尚未啟動</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">要求模式</span><span id="diagRequestedMode" class="diagnostic-value">1280 × 720 / 30fps</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">實際解析度</span><span id="diagResolution" class="diagnostic-value">尚未啟動</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">實際幀率</span><span id="diagFrameRate" class="diagnostic-value">尚未啟動</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">目前錄影格式</span><span id="diagMimeType" class="diagnostic-value">尚未錄影</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">骨架狀態</span><span id="diagPoseStatus" class="diagnostic-value">尚未啟動</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">骨架偵測 FPS</span><span id="diagPoseFps" class="diagnostic-value">尚未啟動</span></div>
-                <div class="diagnostic-item"><span class="diagnostic-label">錄製來源</span><span id="diagRecordSource" class="diagnostic-value">Canvas 骨架疊圖</span></div>
-                <div class="diagnostic-item diagnostic-wide"><span class="diagnostic-label">攝影機能力</span><pre id="diagCapabilities" class="diagnostic-pre">啟動攝影機後顯示。</pre></div>
-                <div class="diagnostic-item diagnostic-wide"><span class="diagnostic-label">測試建議</span><div id="diagRecommendation" class="diagnostic-value diagnostic-advice">先用 640×480/30fps 測骨架穩定，再測 1280×720/30fps。</div></div>
-            </div>
-        </div>
-
+        <!-- 錄製控制區域 -->
         <div class="recording-section">
             <h2>錄製</h2>
+
             <div class="duration-options">
                 <span class="duration-label">錄影長度：</span>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="30"> 30 秒</label>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="60"> 1 分鐘</label>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="120" checked> 2 分鐘</label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="30"> 
+                    30 秒
+                </label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="60"> 
+                    1 分鐘
+                </label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="120" checked> 
+                    2 分鐘
+                </label>
             </div>
+
             <div class="timer-size-options">
                 <span class="duration-label">倒數時間大小：</span>
-                <label class="duration-option"><input type="radio" name="timerSize" value="normal"> 一般字</label>
-                <label class="duration-option"><input type="radio" name="timerSize" value="large" checked> 大字模式</label>
+                <label class="duration-option">
+                    <input type="radio" name="timerSize" value="normal"> 
+                    一般字
+                </label>
+                <label class="duration-option">
+                    <input type="radio" name="timerSize" value="large" checked> 
+                    大字模式
+                </label>
             </div>
+
             <div class="button-group">
                 <button id="startRecordingBtn" class="btn btn-success" disabled>開始錄製</button>
                 <button id="stopRecordingBtn" class="btn btn-danger" disabled>停止錄製</button>
             </div>
+
             <div id="prepCountdown" class="prep-countdown">準備就緒</div>
             <div id="timerDisplay" class="timer">00:00</div>
             <div id="recordingStatus" class="status-message"></div>
         </div>
 
+        <!-- 下載區域 -->
         <div class="download-section">
             <h2>下載</h2>
-            <button id="downloadBtn" class="btn btn-info" disabled>下載骨架疊圖影片</button>
+            <button id="downloadBtn" class="btn btn-info" disabled>下載影片</button>
             <div id="downloadStatus" class="status-message"></div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
