@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CPR 研究用網頁系統 V1.0.3</title>
+    <title>CPR 研究用網頁系統 V1.0.7</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <h1>CPR 研究用網頁系統 V1.0.3</h1>
+        <h1>CPR 研究用網頁系統 V1.0.7</h1>
         
         <!-- 設定區域 -->
         <div class="settings-section">
@@ -60,9 +60,11 @@
             <div class="video-container">
                 <video id="videoPreview" playsinline autoplay muted></video>
                 <canvas id="videoCanvas" style="display: none;"></canvas>
-                <div id="videoStatusOverlay" class="video-overlay video-status-overlay">待機</div>
+
+                <!-- 攝影機畫面上的疊加資訊 -->
+                <div id="videoStatusOverlay" class="video-overlay video-status-overlay status-idle">待機</div>
                 <div id="videoTimerOverlay" class="video-overlay video-timer-overlay">02:00</div>
-                <div id="preCountdownOverlay" class="video-overlay pre-countdown-overlay">準備就緒</div>
+                <div id="preCountdownOverlay" class="video-overlay pre-countdown-overlay hidden"></div>
             </div>
             
             <!-- 攝影機狀態顯示 -->
@@ -76,9 +78,18 @@
             <!-- 錄影長度選擇 -->
             <div class="duration-options">
                 <span class="duration-label">錄影長度：</span>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="30"> 30 秒</label>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="60"> 1 分鐘</label>
-                <label class="duration-option"><input type="radio" name="recordingLength" value="120" checked> 2 分鐘</label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="30"> 
+                    30 秒
+                </label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="60"> 
+                    1 分鐘
+                </label>
+                <label class="duration-option">
+                    <input type="radio" name="recordingLength" value="120" checked> 
+                    2 分鐘
+                </label>
             </div>
             
             <!-- 錄製按鈕組 -->
@@ -87,10 +98,10 @@
                 <button id="stopRecordingBtn" class="btn btn-danger" disabled>停止錄製</button>
             </div>
             
-            <!-- 預備倒數顯示 -->
+            <!-- 預備倒數輔助顯示 -->
             <div id="prepCountdown" class="prep-countdown">準備就緒</div>
             
-            <!-- 正式倒數計時顯示 -->
+            <!-- 正式倒數計時輔助顯示 -->
             <div id="timerDisplay" class="timer">00:00</div>
             
             <!-- 錄製狀態 -->
