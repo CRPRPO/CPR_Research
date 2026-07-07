@@ -23,8 +23,8 @@ input[type="text"]:focus,select:focus{outline:none;border-color:#667eea;box-shad
 .btn-info{background:#4299e1;color:white}.btn-info:hover:not(:disabled){background:#3182ce}
 .btn-secondary{background:#718096;color:white}.btn-secondary:hover:not(:disabled){background:#4a5568}
 .video-container{width:100%;max-width:1000px;margin:0 auto 20px;position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:16/9}
-video{position:relative;z-index:1;width:100%;height:100%;display:block;object-fit:contain;background:#000}
-canvas{position:absolute;top:0;left:0;z-index:2;width:100%;height:100%;display:block;object-fit:contain;background:transparent;pointer-events:none}
+video{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
+canvas{position:relative;z-index:1;width:100%;height:100%;display:block;object-fit:contain;background:#000}
 .video-overlay{position:absolute;z-index:5;color:white;padding:10px 14px;border-radius:8px;pointer-events:none;line-height:1.1}
 .video-status-overlay{top:14px;left:14px;background:rgba(0,0,0,.6);font-size:clamp(28px,3.5vw,48px);padding:14px 22px;border-radius:14px;font-weight:900}
 .video-timer-overlay{top:14px;right:14px;background:rgba(0,0,0,.82);color:#fff;font-weight:900;letter-spacing:.06em;text-shadow:2px 2px 6px rgba(0,0,0,.9);border-radius:16px}
