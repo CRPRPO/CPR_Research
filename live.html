@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.4</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v224" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.5</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v225" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.4</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.5</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -48,7 +48,7 @@
         <label class="field">
           <span>攝影機來源</span>
           <select id="cameraSelect">
-            <option value="">尚未讀取攝影機</option>
+            <option value="__auto__">自動選擇攝影機（可直接開啟）</option>
           </select>
         </label>
 
@@ -146,6 +146,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260821-v224"></script>
+  <script type="module" src="live.js?v=20260821-v225"></script>
 </body>
 </html>

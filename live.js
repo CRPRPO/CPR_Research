@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.4";
+const APP_VERSION = "CPR Research System V2.2.5";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -913,43 +913,111 @@ async function loadModel() {
   if (poseLandmarker) return;
   setMessage("正在載入 MediaPipe Full 模型，第一次載入可能需要數秒。");
   const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "GPU" },
-    runningMode: "VIDEO",
-    numPoses: 1,
-    minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
+  try {
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.5,
+      minPosePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+  } catch (gpuErr) {
+    console.warn("GPU delegate 載入失敗，改用 CPU delegate。", gpuErr);
+    setMessage("GPU 載入失敗，正在改用 CPU 模式載入 MediaPipe Full 模型...");
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "CPU" },
+      runningMode: "VIDEO",
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.5,
+      minPosePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+  }
+}
+
+function addAutoCameraOption(label = "自動選擇攝影機") {
+  const opt = document.createElement("option");
+  opt.value = "__auto__";
+  opt.textContent = label;
+  els.cameraSelect.appendChild(opt);
 }
 
 async function refreshCameras() {
   const previous = els.cameraSelect.value;
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      throw new Error("此瀏覽器不支援 enumerateDevices，請確認使用 HTTPS 與新版 Chrome/Safari。");
+    }
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videos = devices.filter(d => d.kind === "videoinput");
     els.cameraSelect.innerHTML = "";
-    if (!videos.length) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "找不到攝影機，請先允許權限";
-      els.cameraSelect.appendChild(opt);
-      return;
-    }
+    addAutoCameraOption("自動選擇攝影機（不用先讀取清單）");
+
     videos.forEach((device, idx) => {
       const opt = document.createElement("option");
-      opt.value = device.deviceId;
-      opt.textContent = device.label || `攝影機 ${idx + 1}`;
-      els.cameraSelect.appendChild(opt);
+      opt.value = device.deviceId || `__device_${idx}`;
+      opt.textContent = device.label || `攝影機 ${idx + 1}（允許權限後會顯示名稱）`;
+      if (device.deviceId) els.cameraSelect.appendChild(opt);
     });
-    if (previous && videos.some(d => d.deviceId === previous)) {
+
+    if (previous && previous !== "__auto__" && videos.some(d => d.deviceId === previous)) {
       els.cameraSelect.value = previous;
+    } else {
+      els.cameraSelect.value = "__auto__";
     }
   } catch (err) {
-    setMessage(`讀取攝影機清單失敗：${err.message}`);
+    els.cameraSelect.innerHTML = "";
+    addAutoCameraOption("自動選擇攝影機（清單讀取失敗也可啟動）");
+    setMessage(`讀取攝影機清單失敗：${err.message}。你仍可直接按「開啟攝影機與模型」。`);
   }
 }
 
+function buildVideoConstraints(selectedDeviceId, strictDevice = true) {
+  const portraitRequest = shouldRequestPortraitCamera();
+  currentRequestedWidth = portraitRequest ? 480 : DEFAULT_WIDTH;
+  currentRequestedHeight = portraitRequest ? 640 : DEFAULT_HEIGHT;
+  currentRequestedQuality = `${currentRequestedWidth}x${currentRequestedHeight}x${DEFAULT_FPS}`;
+
+  const constraints = {
+    width: { ideal: currentRequestedWidth },
+    height: { ideal: currentRequestedHeight },
+    frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
+    aspectRatio: { ideal: currentRequestedWidth / currentRequestedHeight }
+  };
+
+  if (selectedDeviceId && selectedDeviceId !== "__auto__") {
+    constraints.deviceId = strictDevice ? { exact: selectedDeviceId } : { ideal: selectedDeviceId };
+  } else if (portraitRequest) {
+    // 手機直式現場優先用後鏡頭；若瀏覽器不支援，後續會 fallback 到預設鏡頭。
+    constraints.facingMode = { ideal: "environment" };
+  }
+  return constraints;
+}
+
+async function openMediaStreamWithFallback(selectedDeviceId) {
+  const attempts = [];
+  if (selectedDeviceId && selectedDeviceId !== "__auto__") {
+    attempts.push({ label: "指定攝影機 exact", constraints: buildVideoConstraints(selectedDeviceId, true) });
+    attempts.push({ label: "指定攝影機 ideal", constraints: buildVideoConstraints(selectedDeviceId, false) });
+  }
+  attempts.push({ label: "自動選擇攝影機", constraints: buildVideoConstraints("__auto__", false) });
+  attempts.push({ label: "瀏覽器預設攝影機", constraints: { width: { ideal: DEFAULT_WIDTH }, height: { ideal: DEFAULT_HEIGHT }, frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS } } });
+  attempts.push({ label: "最低限制攝影機", constraints: true });
+
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: attempt.constraints, audio: false });
+      return { stream, attemptLabel: attempt.label };
+    } catch (err) {
+      lastErr = err;
+      console.warn(`getUserMedia 嘗試失敗：${attempt.label}`, err);
+    }
+  }
+  throw lastErr || new Error("無法啟動攝影機");
+}
 
 function shouldRequestPortraitCamera() {
   return window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches;
@@ -965,46 +1033,32 @@ function applyVideoCardAspect(width, height) {
 async function startCameraAndModel() {
   try {
     els.startCameraBtn.disabled = true;
-    setMessage("正在啟動攝影機與模型...");
+    setMessage("正在啟動攝影機與模型...若第一次使用，請先允許瀏覽器攝影機權限。");
 
-    // 先要求一次權限，讓瀏覽器提供攝影機名稱。若已授權，此步驟會很快。
-    if (!els.cameraSelect.value) {
-      const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      temp.getTracks().forEach(t => t.stop());
-      await refreshCameras();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("此瀏覽器不支援 getUserMedia，請確認使用 HTTPS 網址與新版瀏覽器。");
     }
 
     await loadModel();
 
-    const selectedDeviceId = els.cameraSelect.value;
-    const portraitRequest = shouldRequestPortraitCamera();
-    currentRequestedWidth = portraitRequest ? 480 : DEFAULT_WIDTH;
-    currentRequestedHeight = portraitRequest ? 640 : DEFAULT_HEIGHT;
-    currentRequestedQuality = `${currentRequestedWidth}x${currentRequestedHeight}x${DEFAULT_FPS}`;
-    const videoConstraints = {
-      width: { ideal: currentRequestedWidth },
-      height: { ideal: currentRequestedHeight },
-      frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
-      aspectRatio: { ideal: currentRequestedWidth / currentRequestedHeight }
-    };
-    if (selectedDeviceId) {
-      videoConstraints.deviceId = { exact: selectedDeviceId };
-    }
-
+    const selectedDeviceId = els.cameraSelect.value || "__auto__";
     if (mediaStream) stopCameraOnly();
-    mediaStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+
+    const opened = await openMediaStreamWithFallback(selectedDeviceId);
+    mediaStream = opened.stream;
     els.video.srcObject = mediaStream;
     await els.video.play();
 
     const track = mediaStream.getVideoTracks()[0];
     cameraSettings = track.getSettings();
-    selectedCameraLabel = track.label || "";
-    selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "";
+    selectedCameraLabel = track.label || opened.attemptLabel || "攝影機";
+    selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "auto";
 
     els.canvas.width = cameraSettings.width || currentRequestedWidth;
     els.canvas.height = cameraSettings.height || currentRequestedHeight;
     applyVideoCardAspect(els.canvas.width, els.canvas.height);
 
+    // 權限取得後再刷新清單，此時 label 與 deviceId 通常才會完整顯示。
     await refreshCameras();
     if (cameraSettings?.deviceId && [...els.cameraSelect.options].some(o => o.value === cameraSettings.deviceId)) {
       els.cameraSelect.value = cameraSettings.deviceId;
@@ -1017,13 +1071,13 @@ async function startCameraAndModel() {
     const portraitMessage = cameraSettings.width < cameraSettings.height
       ? (shouldRequestPortraitCamera() ? "｜手機直式錄影版面" : "｜直向畫面，電腦研究錄影建議改橫式構圖")
       : "";
-    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜要求 ${currentRequestedQuality}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
+    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜啟動方式 ${opened.attemptLabel}｜要求 ${currentRequestedQuality}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
 
     smoothedDisplayMap = null;
     startLoop();
   } catch (err) {
     els.startCameraBtn.disabled = false;
-    setMessage(`啟動失敗：${err.message}。若選外接鏡頭仍跳回內建鏡頭，請重新整理清單後再選一次。`);
+    setMessage(`啟動失敗：${err.name || "Error"}｜${err.message}。請確認：1. GitHub Pages 是 https，2. 瀏覽器已允許攝影機權限，3. 其他程式沒有佔用攝影機。`);
   }
 }
 
@@ -1374,7 +1428,7 @@ function initEvents() {
       temp.getTracks().forEach(t => t.stop());
     } catch (_) {}
     await refreshCameras();
-    setMessage("攝影機清單已重新整理。請選擇要使用的鏡頭後再啟動。");
+    setMessage("攝影機清單已重新整理。若清單仍看不到鏡頭，可以直接用「自動選擇攝影機」啟動。");
   });
   els.startCameraBtn.addEventListener("click", startCameraAndModel);
   els.stopCameraBtn.addEventListener("click", stopCamera);
@@ -1399,6 +1453,7 @@ async function init() {
   setStatus(els.alignmentCard, els.alignmentStatus, "待機", "");
   setStatus(els.trunkCard, els.trunkStatus, "待機", "");
   setStatus(els.rateCard, els.rateStatus, "估算中", "");
+  setMessage("請按「開啟攝影機與模型」。若清單尚未顯示鏡頭，系統會先使用自動選擇攝影機啟動。");
 }
 
 init();
