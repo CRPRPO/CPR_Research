@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.0";
+const APP_VERSION = "CPR Research System V2.2.2";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -10,6 +10,8 @@ const DEFAULT_FPS = 30;
 const JUMP_THRESHOLD_PX = 25;
 const QUALITY_MIN_VISIBILITY = 0.60;
 const POSE_STALE_MS = 500;
+const PREP_COUNTDOWN_SEC = 10;
+const AUTO_SIDE_SWITCH_MARGIN = 0.75;
 
 const POINTS = [
   "nose", "neck_mid",
@@ -87,6 +89,9 @@ let selectedCameraShort = "";
 
 let isCameraRunning = false;
 let isRecording = false;
+let isPreparing = false;
+let prepCountdownTimerId = null;
+let autoTrackedSide = "right";
 let sessionId = "";
 let fileBase = "";
 let recordingStartMs = 0;
@@ -296,20 +301,36 @@ function addSteps(pointMap, previousMap) {
   }
 }
 
+function scoreTrackedSide(pointMap, side) {
+  const parts = ["shoulder", "elbow", "wrist", "hip"].map(part => pointMap[`${side}_${part}`]);
+  return parts.reduce((sum, p) => {
+    const vis = Number.isFinite(p?.visibility) ? p.visibility : 0;
+    const inFrame = p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? 0.15 : -0.2;
+    return sum + vis + inFrame;
+  }, 0);
+}
+
 function getSelectedSide(pointMap) {
   const mode = els.trackedSideMode.value;
-  if (mode === "left" || mode === "right") return mode;
+  if (mode === "left" || mode === "right") {
+    autoTrackedSide = mode;
+    return mode;
+  }
 
-  const scoreSide = (side) => {
-    const parts = ["shoulder", "elbow", "wrist", "hip"].map(part => pointMap[`${side}_${part}`]);
-    return parts.reduce((sum, p) => {
-      const vis = Number.isFinite(p?.visibility) ? p.visibility : 0;
-      const inFrame = p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? 0.15 : -0.2;
-      return sum + vis + inFrame;
-    }, 0);
-  };
+  const leftScore = scoreTrackedSide(pointMap, "left");
+  const rightScore = scoreTrackedSide(pointMap, "right");
+  const candidate = leftScore >= rightScore ? "left" : "right";
+  const candidateScore = candidate === "left" ? leftScore : rightScore;
+  const currentScore = autoTrackedSide === "left" ? leftScore : rightScore;
 
-  return scoreSide("left") >= scoreSide("right") ? "left" : "right";
+  // V2.2.2：自動選手臂加入遲滯，避免初期 visibility 不穩時左右來回跳。
+  if (!autoTrackedSide || !["left", "right"].includes(autoTrackedSide)) {
+    autoTrackedSide = candidate;
+  } else if (candidate !== autoTrackedSide && candidateScore > currentScore + AUTO_SIDE_SWITCH_MARGIN) {
+    autoTrackedSide = candidate;
+  }
+
+  return autoTrackedSide;
 }
 
 function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
@@ -667,10 +688,18 @@ function drawFrame() {
 function drawSkeleton(landmarks) {
   const pm = getPointMap(landmarks);
   const side = getSelectedSide(pm);
-  drawSide(pm, "left", side === "left" ? "#22d3ee" : "rgba(34, 211, 238, 0.45)");
-  drawSide(pm, "right", side === "right" ? "#facc15" : "rgba(250, 204, 21, 0.45)");
-  drawLine(pm.left_shoulder, pm.right_shoulder, "rgba(255,255,255,0.55)", 2);
-  drawLine(pm.left_hip, pm.right_hip, "rgba(255,255,255,0.38)", 2);
+
+  // 先畫軀幹與髖部，讓 CPR 姿勢分析需要的 shoulder-hip linkage 更明顯。
+  drawLine(pm.left_shoulder, pm.right_shoulder, "rgba(255,255,255,0.62)", 3);
+  drawLine(pm.left_hip, pm.right_hip, "rgba(52, 211, 153, 0.90)", 4);
+  drawLine(pm.left_shoulder, pm.left_hip, "rgba(52, 211, 153, 0.55)", 3);
+  drawLine(pm.right_shoulder, pm.right_hip, "rgba(52, 211, 153, 0.55)", 3);
+
+  drawSide(pm, "left", side === "left" ? "#22d3ee" : "rgba(34, 211, 238, 0.42)");
+  drawSide(pm, "right", side === "right" ? "#facc15" : "rgba(250, 204, 21, 0.42)");
+
+  drawPoint(pm.left_hip, "#34d399", 8, "LH");
+  drawPoint(pm.right_hip, "#34d399", 8, "RH");
   drawPoint(pm.nose, "#fb7185", 5, "nose");
   drawPoint(pm.neck_mid, "#ffffff", 5, "neck");
 }
@@ -781,7 +810,8 @@ async function startCameraAndModel() {
     const videoConstraints = {
       width: { ideal: DEFAULT_WIDTH },
       height: { ideal: DEFAULT_HEIGHT },
-      frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS }
+      frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
+      aspectRatio: { ideal: DEFAULT_WIDTH / DEFAULT_HEIGHT }
     };
     if (selectedDeviceId) {
       videoConstraints.deviceId = { exact: selectedDeviceId };
@@ -809,7 +839,10 @@ async function startCameraAndModel() {
     els.stopCameraBtn.disabled = false;
     els.startTestBtn.disabled = false;
     els.recordStatus.textContent = "攝影機已啟動";
-    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps`);
+    const portraitWarning = cameraSettings.width < cameraSettings.height
+      ? "｜偵測到直向畫面，正式研究建議手機橫放後重新開啟攝影機"
+      : "";
+    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitWarning}`);
 
     startLoop();
   } catch (err) {
@@ -902,11 +935,45 @@ function startTest() {
     setMessage("請先開啟攝影機與模型。");
     return;
   }
-  if (isRecording) return;
+  if (isRecording || isPreparing) return;
 
   sessionId = makeSessionId(new Date());
   fileBase = makeFileBase();
   recordingDurationSec = Number(els.durationSec.value || 120);
+  autoTrackedSide = "right";
+  lastRecordPointMap = null;
+
+  isPreparing = true;
+  els.recordStatus.textContent = "準備倒數";
+  els.sessionDisplay.textContent = fileBase;
+  els.startTestBtn.disabled = true;
+  els.stopTestBtn.disabled = false;
+  els.durationSec.disabled = true;
+  els.subjectCode.disabled = true;
+  els.testStage.disabled = true;
+
+  let remain = PREP_COUNTDOWN_SEC;
+  els.timerDisplay.textContent = formatTime(remain);
+  setMessage(`準備倒數 ${remain} 秒。倒數期間不錄影、不記錄資料，請受試者就定位。`);
+
+  clearInterval(prepCountdownTimerId);
+  prepCountdownTimerId = setInterval(() => {
+    remain -= 1;
+    els.timerDisplay.textContent = formatTime(remain);
+    els.recordStatus.textContent = `準備 ${remain}`;
+    setMessage(`準備倒數 ${remain} 秒。倒數結束後自動開始錄影。`);
+    if (remain <= 0) {
+      clearInterval(prepCountdownTimerId);
+      prepCountdownTimerId = null;
+      beginRecordingSession();
+    }
+  }, 1000);
+}
+
+function beginRecordingSession() {
+  if (!isPreparing) return;
+  isPreparing = false;
+
   recordingStartMs = performance.now();
   recordingStopMs = 0;
   frameIndex = 0;
@@ -939,12 +1006,7 @@ function startTest() {
 
   isRecording = true;
   els.recordStatus.textContent = "● 錄影中";
-  els.sessionDisplay.textContent = fileBase;
-  els.startTestBtn.disabled = true;
-  els.stopTestBtn.disabled = false;
-  els.durationSec.disabled = true;
-  els.subjectCode.disabled = true;
-  els.testStage.disabled = true;
+  els.timerDisplay.textContent = formatTime(recordingDurationSec);
   setMessage("測試與錄影進行中。原始影片與骨架資料會分開保存。");
 
   updateTimer();
@@ -959,6 +1021,21 @@ function updateTimer() {
 }
 
 function stopTest() {
+  if (isPreparing) {
+    isPreparing = false;
+    clearInterval(prepCountdownTimerId);
+    prepCountdownTimerId = null;
+    els.timerDisplay.textContent = formatTime(Number(els.durationSec.value || 120));
+    els.recordStatus.textContent = "待機";
+    els.stopTestBtn.disabled = true;
+    els.startTestBtn.disabled = false;
+    els.durationSec.disabled = false;
+    els.subjectCode.disabled = false;
+    els.testStage.disabled = false;
+    setMessage("準備倒數已取消。");
+    return;
+  }
+
   if (!isRecording) return;
   isRecording = false;
   recordingStopMs = performance.now();
@@ -1004,6 +1081,7 @@ function buildMetadata() {
     test_stage: els.testStage.value,
     duration_sec_requested: recordingDurationSec,
     duration_sec_actual: round(durationActualSec, 3),
+    prep_countdown_sec: PREP_COUNTDOWN_SEC,
     mode: "live_recording",
     video_recording: {
       raw_video_filename: `${fileBase}_raw.${rawVideoExtension}`,
@@ -1080,6 +1158,9 @@ async function downloadZip() {
 }
 
 function stopCameraOnly() {
+  if (prepCountdownTimerId) clearInterval(prepCountdownTimerId);
+  prepCountdownTimerId = null;
+  isPreparing = false;
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
   if (mediaStream) {

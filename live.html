@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.0</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v220" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.2</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v222" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.0</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.2</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -78,28 +78,7 @@
           <div class="video-overlay bottom-left" id="sessionDisplay">尚未開始</div>
         </div>
 
-        <div class="control-row">
-          <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
-          <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
-          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 錄影</button>
-          <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
-        </div>
-
-        <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
-
-        <div class="download-panel panel">
-          <h2>下載資料</h2>
-          <div class="download-grid">
-            <button id="downloadRawBtn" type="button" disabled>下載原始影片</button>
-            <button id="downloadLandmarksBtn" type="button" disabled>下載 landmarks.csv</button>
-            <button id="downloadMetricsBtn" type="button" disabled>下載 posture_metrics.csv</button>
-            <button id="downloadMetadataBtn" type="button" disabled>下載 metadata.json</button>
-            <button id="downloadZipBtn" class="primary-btn" type="button" disabled>一鍵下載 ZIP</button>
-          </div>
-        </div>
-      </section>
-
-      <aside class="panel status-panel">
+        <aside class="panel status-panel inline-status-panel">
         <h2>即時狀態</h2>
         <div class="metric-card" id="qualityCard">
           <span>偵測品質</span>
@@ -127,13 +106,34 @@
         </div>
         <div class="info-box compact">
           <strong>提醒</strong>
-          <p>若顯示偵測不穩，請優先調整鏡頭角度，讓肩、肘、腕、髖完整入鏡。</p>
+          <p>若顯示偵測不穩，請優先調整鏡頭角度，讓肩、肘、腕、髖完整入鏡。倒數 10 秒期間不錄影、不記錄資料。</p>
         </div>
       </aside>
+
+        <div class="control-row">
+          <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
+          <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
+          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 10秒倒數後錄影</button>
+          <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
+        </div>
+
+        <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
+
+        <div class="download-panel panel">
+          <h2>下載資料</h2>
+          <div class="download-grid">
+            <button id="downloadRawBtn" type="button" disabled>下載原始影片</button>
+            <button id="downloadLandmarksBtn" type="button" disabled>下載 landmarks.csv</button>
+            <button id="downloadMetricsBtn" type="button" disabled>下載 posture_metrics.csv</button>
+            <button id="downloadMetadataBtn" type="button" disabled>下載 metadata.json</button>
+            <button id="downloadZipBtn" class="primary-btn" type="button" disabled>一鍵下載 ZIP</button>
+          </div>
+        </div>
+      </section>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260821-v220"></script>
+  <script type="module" src="live.js?v=20260821-v222"></script>
 </body>
 </html>

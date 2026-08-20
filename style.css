@@ -178,7 +178,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .live-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 330px) minmax(520px, 1fr) minmax(260px, 330px);
+  grid-template-columns: minmax(260px, 330px) minmax(520px, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -278,6 +278,13 @@ input:focus, select:focus {
 
 .status-panel { display: grid; gap: 12px; }
 .status-panel h2 { margin-bottom: 4px; }
+.inline-status-panel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+.inline-status-panel h2, .inline-status-panel .info-box { grid-column: 1 / -1; }
 
 .metric-card {
   border-radius: 18px;
@@ -320,7 +327,8 @@ input:focus, select:focus {
   }
   .settings-panel { order: 2; }
   .video-column { order: 1; }
-  .status-panel { order: 3; }
+  .inline-status-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inline-status-panel .metric-card.muted, .inline-status-panel .info-box { grid-column: 1 / -1; }
   .download-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
@@ -331,6 +339,13 @@ input:focus, select:focus {
   .version-pill { margin-top: 10px; }
   .control-row { grid-template-columns: 1fr; }
   .download-grid { grid-template-columns: 1fr; }
+  .video-card { border-radius: 18px; }
+  .video-overlay { font-size: 16px; padding: 7px 10px; }
   .top-right { font-size: 22px; }
-  .metric-card strong { font-size: 22px; }
+  .inline-status-panel { gap: 8px; padding: 12px; }
+  .inline-status-panel h2 { font-size: 18px; margin: 0; }
+  .metric-card { padding: 12px; border-radius: 14px; }
+  .metric-card span { font-size: 12px; margin-bottom: 4px; }
+  .metric-card strong { font-size: 18px; }
+  .metric-card.muted strong { font-size: 14px; }
 }
