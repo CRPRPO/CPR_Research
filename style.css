@@ -376,7 +376,7 @@ input:focus, select:focus {
 }
 
 
-/* V2.2.3: 現場測試版版面修正 */
+/* V2.2.4: 現場測試版版面修正 */
 .download-panel {
   border-top: 1px solid rgba(148, 163, 184, 0.18);
   padding-top: 4px;
@@ -398,4 +398,17 @@ input:focus, select:focus {
   .inline-status-panel .metric-card.muted { grid-column: 1 / -1; }
   .monitor-hint { display: none; }
   .status-line { font-size: 14px; padding: 10px; }
+}
+
+
+/* V2.2.4: 手機直式現場操作調整 */
+#sideCard strong { font-size: 22px; }
+@media (max-width: 720px) {
+  .operation-panel > h2 { order: 0; }
+  .inline-status-panel { order: 1; }
+  .control-row { order: 2; }
+  .status-line { order: 3; }
+  .download-panel { order: 4; }
+  .inline-status-panel { padding: 0; }
+  #sideCard strong { font-size: 16px; }
 }

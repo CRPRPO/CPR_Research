@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.3";
+const APP_VERSION = "CPR Research System V2.2.4";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -15,6 +15,8 @@ const QUALITY_MIN_VISIBILITY = 0.60;
 const POSE_STALE_MS = 500;
 const PREP_COUNTDOWN_SEC = 10;
 const AUTO_SIDE_SWITCH_MARGIN = 0.75;
+const AUTO_SIDE_Z_MARGIN = 0.08;
+const DISPLAY_SMOOTH_ALPHA = 0.34;
 
 const POINTS = [
   "nose", "neck_mid",
@@ -43,6 +45,7 @@ const els = {
   cameraSelect: document.getElementById("cameraSelect"),
   refreshCamerasBtn: document.getElementById("refreshCamerasBtn"),
   trackedSideMode: document.getElementById("trackedSideMode"),
+  mirrorDisplay: document.getElementById("mirrorDisplay"),
   video: document.getElementById("video"),
   videoCard: document.getElementById("videoCard"),
   canvas: document.getElementById("overlayCanvas"),
@@ -59,7 +62,9 @@ const els = {
   alignmentStatus: document.getElementById("alignmentStatus"),
   trunkStatus: document.getElementById("trunkStatus"),
   rateStatus: document.getElementById("rateStatus"),
+  sideStatus: document.getElementById("sideStatus"),
   qualityCard: document.getElementById("qualityCard"),
+  sideCard: document.getElementById("sideCard"),
   elbowCard: document.getElementById("elbowCard"),
   alignmentCard: document.getElementById("alignmentCard"),
   trunkCard: document.getElementById("trunkCard"),
@@ -82,6 +87,7 @@ let rawVideoExtension = "webm";
 let rafId = null;
 let lastVideoTime = -1;
 let latestLandmarks = null;
+let smoothedDisplayMap = null;
 let latestPoseCount = 0;
 let latestPoseTimestampMs = 0;
 let lastRecordPointMap = null;
@@ -122,6 +128,7 @@ let metadataBlob = null;
 function makeEmptyMetrics() {
   return {
     trackedSide: "auto",
+    trackedSideReason: "待機",
     qualityStatus: "待機",
     elbowStatus: "待機",
     alignmentStatus: "待機",
@@ -305,13 +312,27 @@ function addSteps(pointMap, previousMap) {
   }
 }
 
-function scoreTrackedSide(pointMap, side) {
+function sideVisibilityScore(pointMap, side) {
   const parts = ["shoulder", "elbow", "wrist", "hip"].map(part => pointMap[`${side}_${part}`]);
   return parts.reduce((sum, p) => {
     const vis = Number.isFinite(p?.visibility) ? p.visibility : 0;
-    const inFrame = p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? 0.15 : -0.2;
+    const inFrame = p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? 0.15 : -0.25;
     return sum + vis + inFrame;
   }, 0);
+}
+
+function sideAverageZ(pointMap, side) {
+  const parts = ["shoulder", "elbow", "wrist"].map(part => pointMap[`${side}_${part}`]);
+  const vals = parts.map(p => p?.z).filter(Number.isFinite);
+  if (!vals.length) return "";
+  return mean(vals);
+}
+
+function scoreTrackedSide(pointMap, side) {
+  const visibilityScore = sideVisibilityScore(pointMap, side);
+  const avgZ = sideAverageZ(pointMap, side);
+  const proximityScore = Number.isFinite(avgZ) ? -avgZ * 6 : 0;
+  return visibilityScore + proximityScore;
 }
 
 function getSelectedSide(pointMap) {
@@ -321,24 +342,72 @@ function getSelectedSide(pointMap) {
     return mode;
   }
 
+  const leftZ = sideAverageZ(pointMap, "left");
+  const rightZ = sideAverageZ(pointMap, "right");
   const leftScore = scoreTrackedSide(pointMap, "left");
   const rightScore = scoreTrackedSide(pointMap, "right");
-  const candidate = leftScore >= rightScore ? "left" : "right";
+
+  let candidate;
+  if (Number.isFinite(leftZ) && Number.isFinite(rightZ) && Math.abs(leftZ - rightZ) >= AUTO_SIDE_Z_MARGIN) {
+    candidate = leftZ < rightZ ? "left" : "right";
+  } else {
+    candidate = leftScore >= rightScore ? "left" : "right";
+  }
+
   const candidateScore = candidate === "left" ? leftScore : rightScore;
   const currentScore = autoTrackedSide === "left" ? leftScore : rightScore;
 
-  // V2.2.3：自動選手臂加入遲滯，避免初期 visibility 不穩時左右來回跳。
   if (!autoTrackedSide || !["left", "right"].includes(autoTrackedSide)) {
     autoTrackedSide = candidate;
   } else if (candidate !== autoTrackedSide && candidateScore > currentScore + AUTO_SIDE_SWITCH_MARGIN) {
+    autoTrackedSide = candidate;
+  } else if (candidate !== autoTrackedSide && Number.isFinite(leftZ) && Number.isFinite(rightZ) && Math.abs(leftZ - rightZ) >= AUTO_SIDE_Z_MARGIN * 1.8) {
     autoTrackedSide = candidate;
   }
 
   return autoTrackedSide;
 }
 
-function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
+function getTrackedSideReason(pointMap, trackedSide) {
+  const mode = els.trackedSideMode.value;
+  if (mode === "left") return "固定左側";
+  if (mode === "right") return "固定右側";
+  const leftZ = sideAverageZ(pointMap, "left");
+  const rightZ = sideAverageZ(pointMap, "right");
+  if (Number.isFinite(leftZ) && Number.isFinite(rightZ) && Math.abs(leftZ - rightZ) >= AUTO_SIDE_Z_MARGIN) {
+    return "自動：鏡頭近側";
+  }
+  return "自動：較穩定側";
+}
+
+function sideMetricSnapshot(pointMap, side) {
+  const S = pointMap[`${side}_shoulder`];
+  const E = pointMap[`${side}_elbow`];
+  const W = pointMap[`${side}_wrist`];
+  const H = pointMap[`${side}_hip`];
+  const elbowAngle = angleDeg(W, E, S);
+  const torsoLen = distance(S, H);
+  const shoulderWristOffsetPx = S && W ? Math.abs(S.px - W.px) : "";
+  const shoulderWristOffsetNorm = Number.isFinite(shoulderWristOffsetPx) && Number.isFinite(torsoLen) && torsoLen > 0
+    ? shoulderWristOffsetPx / torsoLen
+    : "";
+  const vis = [S, E, W, H].filter(Boolean).map(p => Number.isFinite(p.visibility) ? p.visibility : 0);
+  return {
+    elbowAngleDeg: round(elbowAngle, 2),
+    shoulderWristOffsetPx: round(shoulderWristOffsetPx, 2),
+    shoulderWristOffsetNorm: round(shoulderWristOffsetNorm, 4),
+    minVisibility: round(vis.length ? Math.min(...vis) : "", 4),
+    meanVisibility: round(vis.length ? mean(vis) : "", 4),
+    avgZ: round(sideAverageZ(pointMap, side), 5),
+    score: round(scoreTrackedSide(pointMap, side), 3)
+  };
+}
+
+function computeMetricsfunction computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
   const trackedSide = getSelectedSide(pointMap);
+  const trackedSideReason = getTrackedSideReason(pointMap, trackedSide);
+  const leftSnapshot = sideMetricSnapshot(pointMap, "left");
+  const rightSnapshot = sideMetricSnapshot(pointMap, "right");
   const S = pointMap[`${trackedSide}_shoulder`];
   const E = pointMap[`${trackedSide}_elbow`];
   const W = pointMap[`${trackedSide}_wrist`];
@@ -446,6 +515,19 @@ function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
 
   currentMetrics = {
     trackedSide,
+    trackedSideReason,
+    leftElbowAngleDeg: leftSnapshot.elbowAngleDeg,
+    rightElbowAngleDeg: rightSnapshot.elbowAngleDeg,
+    leftMinVisibility: leftSnapshot.minVisibility,
+    rightMinVisibility: rightSnapshot.minVisibility,
+    leftMeanVisibility: leftSnapshot.meanVisibility,
+    rightMeanVisibility: rightSnapshot.meanVisibility,
+    leftArmZ: leftSnapshot.avgZ,
+    rightArmZ: rightSnapshot.avgZ,
+    leftSideScore: leftSnapshot.score,
+    rightSideScore: rightSnapshot.score,
+    leftShoulderWristOffsetNorm: leftSnapshot.shoulderWristOffsetNorm,
+    rightShoulderWristOffsetNorm: rightSnapshot.shoulderWristOffsetNorm,
     qualityStatus,
     qualityLevel,
     elbowStatus,
@@ -476,6 +558,8 @@ function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
   };
 
   setStatus(els.qualityCard, els.qualityStatus, qualityStatus, qualityLevel);
+  const sideLabel = trackedSide === "right" ? "右側" : "左側";
+  setStatus(els.sideCard, els.sideStatus, `${sideLabel}｜${trackedSideReason.replace("自動：", "")}`, "ok");
   setStatus(els.elbowCard, els.elbowStatus, elbowStatus, elbowLevel);
   setStatus(els.alignmentCard, els.alignmentStatus, alignmentStatus, alignmentLevel);
   setStatus(els.trunkCard, els.trunkStatus, trunkStatus, trunkLevel);
@@ -613,6 +697,19 @@ function makeMetricsRow(elapsedSec, videoTimeSec, metrics) {
     subject_code: sanitizeFilePart(els.subjectCode.value, "NOID"),
     test_stage: els.testStage.value,
     tracked_side: metrics.trackedSide,
+    tracked_side_reason: metrics.trackedSideReason,
+    left_elbow_angle_deg: metrics.leftElbowAngleDeg,
+    right_elbow_angle_deg: metrics.rightElbowAngleDeg,
+    left_min_visibility: metrics.leftMinVisibility,
+    right_min_visibility: metrics.rightMinVisibility,
+    left_mean_visibility: metrics.leftMeanVisibility,
+    right_mean_visibility: metrics.rightMeanVisibility,
+    left_arm_z: metrics.leftArmZ,
+    right_arm_z: metrics.rightArmZ,
+    left_side_score: metrics.leftSideScore,
+    right_side_score: metrics.rightSideScore,
+    left_shoulder_wrist_offset_norm: metrics.leftShoulderWristOffsetNorm,
+    right_shoulder_wrist_offset_norm: metrics.rightShoulderWristOffsetNorm,
     quality_status: metrics.qualityStatus,
     elbow_status: metrics.elbowStatus,
     alignment_status: metrics.alignmentStatus,
@@ -665,7 +762,10 @@ function landmarkHeaders() {
 function metricsHeaders() {
   return [
     "app_version", "frame_index", "timestamp_iso", "elapsed_sec", "video_time_sec", "session_id", "file_base",
-    "subject_code", "test_stage", "tracked_side",
+    "subject_code", "test_stage", "tracked_side", "tracked_side_reason",
+    "left_elbow_angle_deg", "right_elbow_angle_deg", "left_min_visibility", "right_min_visibility",
+    "left_mean_visibility", "right_mean_visibility", "left_arm_z", "right_arm_z",
+    "left_side_score", "right_side_score", "left_shoulder_wrist_offset_norm", "right_shoulder_wrist_offset_norm",
     "quality_status", "elbow_status", "alignment_status", "trunk_status", "rate_status", "rate_bpm",
     "compression_signal_px", "compression_amplitude_px", "wrist_y_px", "shoulder_y_px", "hip_y_px",
     "elbow_angle_deg", "elbow_angle_mean_deg", "elbow_angle_sd_deg",
@@ -677,23 +777,77 @@ function metricsHeaders() {
 
 function drawFrame() {
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+  const mirror = els.mirrorDisplay?.value === "on";
+
   if (els.video.readyState >= 2) {
+    ctx.save();
+    if (mirror) {
+      ctx.translate(els.canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(els.video, 0, 0, els.canvas.width, els.canvas.height);
+    ctx.restore();
   } else {
     ctx.fillStyle = "#020617";
     ctx.fillRect(0, 0, els.canvas.width, els.canvas.height);
   }
 
   if (latestLandmarks && performance.now() - latestPoseTimestampMs <= POSE_STALE_MS) {
-    drawSkeleton(latestLandmarks);
+    const rawMap = getPointMap(latestLandmarks);
+    const displayMap = getSmoothedDisplayPointMap(rawMap, mirror);
+    drawSkeleton(displayMap);
   }
 }
 
-function drawSkeleton(landmarks) {
-  const pm = getPointMap(landmarks);
-  const side = getSelectedSide(pm);
+function getSmoothedDisplayPointMap(rawMap, mirror) {
+  if (!rawMap || !Object.keys(rawMap).length) return rawMap;
+  if (!smoothedDisplayMap) {
+    smoothedDisplayMap = clonePointMap(rawMap);
+  } else {
+    for (const name of Object.keys(rawMap)) {
+      const p = rawMap[name];
+      if (!p) continue;
+      const prev = smoothedDisplayMap[name];
+      if (!prev) {
+        smoothedDisplayMap[name] = { ...p };
+        continue;
+      }
+      for (const key of ["x", "y", "z", "px", "py", "visibility"]) {
+        const nv = p[key];
+        const ov = prev[key];
+        if (Number.isFinite(nv) && Number.isFinite(ov)) {
+          prev[key] = (DISPLAY_SMOOTH_ALPHA * nv) + ((1 - DISPLAY_SMOOTH_ALPHA) * ov);
+        } else {
+          prev[key] = nv;
+        }
+      }
+      prev.step_px = p.step_px;
+      prev.jump = p.jump;
+    }
+  }
 
-  // 先畫軀幹與髖部，讓 CPR 姿勢分析需要的 shoulder-hip linkage 更明顯。
+  const out = clonePointMap(smoothedDisplayMap);
+  if (mirror) {
+    for (const p of Object.values(out)) {
+      if (!p) continue;
+      if (Number.isFinite(p.x)) p.x = 1 - p.x;
+      if (Number.isFinite(p.px)) p.px = els.canvas.width - p.px;
+    }
+  }
+  return out;
+}
+
+function clonePointMap(map) {
+  const out = {};
+  for (const [k, v] of Object.entries(map || {})) out[k] = v ? { ...v } : v;
+  return out;
+}
+
+function drawSkeleton(pm) {
+  const side = currentMetrics?.trackedSide && ["left", "right"].includes(currentMetrics.trackedSide)
+    ? currentMetrics.trackedSide
+    : getSelectedSide(pm);
+
   drawLine(pm.left_shoulder, pm.right_shoulder, "rgba(255,255,255,0.62)", 3);
   drawLine(pm.left_hip, pm.right_hip, "rgba(52, 211, 153, 0.90)", 4);
   drawLine(pm.left_shoulder, pm.left_hip, "rgba(52, 211, 153, 0.55)", 3);
@@ -708,7 +862,7 @@ function drawSkeleton(landmarks) {
   drawPoint(pm.neck_mid, "#ffffff", 5, "neck");
 }
 
-function drawSide(pm, side, color) {
+function drawSidefunction drawSide(pm, side, color) {
   const S = pm[`${side}_shoulder`];
   const E = pm[`${side}_elbow`];
   const W = pm[`${side}_wrist`];
@@ -865,6 +1019,7 @@ async function startCameraAndModel() {
       : "";
     setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜要求 ${currentRequestedQuality}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
 
+    smoothedDisplayMap = null;
     startLoop();
   } catch (err) {
     els.startCameraBtn.disabled = false;
@@ -963,6 +1118,7 @@ function startTest() {
   recordingDurationSec = Number(els.durationSec.value || 120);
   autoTrackedSide = "right";
   lastRecordPointMap = null;
+  smoothedDisplayMap = null;
 
   isPreparing = true;
   els.recordStatus.textContent = "準備倒數";
@@ -1128,8 +1284,14 @@ function buildMetadata() {
       min_tracking_confidence: 0.5,
       num_poses: 1
     },
+    display: {
+      mirror_display: els.mirrorDisplay?.value === "on",
+      display_smoothing_alpha: DISPLAY_SMOOTH_ALPHA,
+      display_smoothing_note: "Smoothing is applied to on-screen skeleton only; CSV landmarks keep raw MediaPipe coordinates."
+    },
     analysis: {
       tracked_side_mode: els.trackedSideMode.value,
+      tracked_side_auto_rule: "auto mode prioritizes camera-facing arm using MediaPipe z; if depth is unclear, it falls back to visibility and in-frame stability",
       jump_threshold_px: JUMP_THRESHOLD_PX,
       landmark_row_count: landmarkRows.length,
       posture_metric_row_count: metricRows.length,
