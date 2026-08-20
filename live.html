@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.0</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v220" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="index.html">← 回首頁</a>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.0</p>
+        <h1>即時測試 / 錄影模式</h1>
+      </div>
+      <div class="version-pill">640×480 / 30fps / Full</div>
+    </header>
+
+    <section class="live-layout">
+      <aside class="panel settings-panel">
+        <h2>測試設定</h2>
+        <label class="field">
+          <span>受試者代碼</span>
+          <input id="subjectCode" type="text" placeholder="例如 S001，可留空" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>測驗階段</span>
+          <select id="testStage">
+            <option value="pretest">前測 pretest</option>
+            <option value="practice">練習 practice</option>
+            <option value="posttest">後測 posttest</option>
+            <option value="retention">保留測驗 retention</option>
+            <option value="other">其他 other</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>錄影長度</span>
+          <select id="durationSec">
+            <option value="30">30 秒</option>
+            <option value="60">60 秒</option>
+            <option value="120" selected>120 秒</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>攝影機來源</span>
+          <select id="cameraSelect">
+            <option value="">尚未讀取攝影機</option>
+          </select>
+        </label>
+
+        <button id="refreshCamerasBtn" class="secondary-btn" type="button">重新整理攝影機清單</button>
+
+        <label class="field">
+          <span>主要分析手臂</span>
+          <select id="trackedSideMode">
+            <option value="auto" selected>自動選擇</option>
+            <option value="left">固定左側</option>
+            <option value="right">固定右側</option>
+          </select>
+        </label>
+
+        <div class="info-box">
+          <strong>目前固定設定</strong>
+          <p>解析度 640×480、30fps、MediaPipe Full、audio:false。影像位移 px 會記錄，但不顯示深度判斷。</p>
+        </div>
+      </aside>
+
+      <section class="video-column">
+        <div class="video-card">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlayCanvas" width="640" height="480"></canvas>
+          <div class="video-overlay top-left" id="recordStatus">待機</div>
+          <div class="video-overlay top-right" id="timerDisplay">00:00</div>
+          <div class="video-overlay bottom-left" id="sessionDisplay">尚未開始</div>
+        </div>
+
+        <div class="control-row">
+          <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
+          <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
+          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 錄影</button>
+          <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
+        </div>
+
+        <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
+
+        <div class="download-panel panel">
+          <h2>下載資料</h2>
+          <div class="download-grid">
+            <button id="downloadRawBtn" type="button" disabled>下載原始影片</button>
+            <button id="downloadLandmarksBtn" type="button" disabled>下載 landmarks.csv</button>
+            <button id="downloadMetricsBtn" type="button" disabled>下載 posture_metrics.csv</button>
+            <button id="downloadMetadataBtn" type="button" disabled>下載 metadata.json</button>
+            <button id="downloadZipBtn" class="primary-btn" type="button" disabled>一鍵下載 ZIP</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel status-panel">
+        <h2>即時狀態</h2>
+        <div class="metric-card" id="qualityCard">
+          <span>偵測品質</span>
+          <strong id="qualityStatus">待機</strong>
+        </div>
+        <div class="metric-card" id="elbowCard">
+          <span>手肘</span>
+          <strong id="elbowStatus">待機</strong>
+        </div>
+        <div class="metric-card" id="alignmentCard">
+          <span>肩腕對齊</span>
+          <strong id="alignmentStatus">待機</strong>
+        </div>
+        <div class="metric-card" id="trunkCard">
+          <span>軀幹參與</span>
+          <strong id="trunkStatus">待機</strong>
+        </div>
+        <div class="metric-card" id="rateCard">
+          <span>按壓速率</span>
+          <strong id="rateStatus">估算中</strong>
+        </div>
+        <div class="metric-card muted">
+          <span>影像位移 px</span>
+          <strong>記錄中，不做深度判斷</strong>
+        </div>
+        <div class="info-box compact">
+          <strong>提醒</strong>
+          <p>若顯示偵測不穩，請優先調整鏡頭角度，讓肩、肘、腕、髖完整入鏡。</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script type="module" src="live.js?v=20260821-v220"></script>
+</body>
+</html>

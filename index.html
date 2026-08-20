@@ -1,128 +1,54 @@
-<!DOCTYPE html>
-<html lang="zh-tw">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CPR 研究用網頁系統 V2.0.7</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CPR Research System V2.2.0</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v220" />
 </head>
 <body>
-<div class="container">
-  <h1>CPR 研究用網頁系統 V2.0.7</h1>
+  <main class="home-shell">
+    <section class="hero-card">
+      <p class="eyebrow">CPR Research System V2.2.0</p>
+      <h1>CPR 姿勢即時偵測與研究資料紀錄系統</h1>
+      <p class="hero-text">
+        本系統採用 640×480 / 30fps 與 MediaPipe Pose Landmarker Full 作為主要分析設定。
+        首階段先完成即時測試與錄影模式，保留原始影片、骨架座標、姿勢指標與 metadata。
+      </p>
+    </section>
 
-  <section>
-    <h2>設定參數</h2>
-    <div class="form-group">
-      <label for="subjectCode">受試者代碼:</label>
-      <input id="subjectCode" type="text" placeholder="例如: S01" maxlength="10">
-    </div>
-    <div class="form-group">
-      <label for="testPhase">測驗階段:</label>
-      <select id="testPhase">
-        <option value="">-- 請選擇 --</option>
-        <option value="pretest">pretest</option>
-        <option value="practice1">practice1</option>
-        <option value="practice2">practice2</option>
-        <option value="practice3">practice3</option>
-        <option value="practice4">practice4</option>
-        <option value="retention">retention</option>
-      </select>
-    </div>
-  </section>
+    <section class="mode-grid" aria-label="系統模式選擇">
+      <a class="mode-card active" href="live.html">
+        <span class="mode-badge">模式一</span>
+        <h2>即時測試 / 錄影模式</h2>
+        <p>開啟攝影機、即時偵測骨架、同步錄製原始影片，並輸出 landmarks、posture metrics 與 metadata。</p>
+        <strong>開始使用 →</strong>
+      </a>
 
-  <section>
-    <h2>攝影機與骨架錄影</h2>
+      <a class="mode-card disabled" href="replay.html" aria-disabled="true">
+        <span class="mode-badge">模式二</span>
+        <h2>本機回播模式</h2>
+        <p>後續可載入本機 webm 與 landmarks.csv，同步回播影片、骨架與姿勢指標。</p>
+        <strong>預留入口</strong>
+      </a>
 
-    <div class="form-group">
-      <label for="cameraSelect">攝影機來源:</label>
-      <select id="cameraSelect">
-        <option value="">預設攝影機（優先後鏡頭 / 外接鏡頭）</option>
-      </select>
-    </div>
+      <a class="mode-card disabled" href="analyze.html" aria-disabled="true">
+        <span class="mode-badge">模式三</span>
+        <h2>重新分析模式</h2>
+        <p>後續可載入既有影片，重新以指定模型分析並產生新的骨架資料。</p>
+        <strong>預留入口</strong>
+      </a>
+    </section>
 
-    <div class="form-group">
-      <label for="qualityMode">畫質模式:</label>
-      <select id="qualityMode">
-        <option value="auto">自動模式（瀏覽器自行協商）</option>
-        <option value="640x480_30">640 × 480 / 30fps（骨架穩定優先）</option>
-        <option value="960x540_30" selected>960 × 540 / 30fps（建議中間尺寸）</option>
-        <option value="1280x720_30">1280 × 720 / 30fps（研究畫質測試）</option>
-      </select>
-    </div>
-
-    <div class="option-box">
-      <label><input type="checkbox" id="showSkeleton" checked> 顯示並錄進肩、肘、腕、髖骨架</label>
-    </div>
-
-    <div class="button-group">
-      <button id="refreshCamerasBtn" class="btn secondary">重新整理攝影機清單</button>
-      <button id="startCameraBtn" class="btn primary">啟動攝影機與骨架</button>
-      <button id="stopCameraBtn" class="btn danger" disabled>停止攝影機</button>
-    </div>
-
-    <div class="warning">
-      <strong>⚠️ V2.0.7 改用 MediaPipe Tasks Vision PoseLandmarker。</strong><br>
-      這版改用 MediaPipe Tasks Vision，並將畫面渲染改為「每一幀先畫攝影機，再畫最新骨架，再送入錄影串流」，避免錄影只錄到原始畫面、沒有骨架。
-    </div>
-
-    <div class="video-container">
-      <video id="videoPreview" playsinline autoplay muted></video>
-      <canvas id="outputCanvas"></canvas>
-      <div id="videoStatusOverlay" class="overlay status status-idle">待機</div>
-      <div id="videoTimerOverlay" class="overlay timer timer-large">02:00</div>
-      <div id="preCountdownOverlay" class="overlay prep hidden"></div>
-    </div>
-
-    <div id="cameraStatus" class="status-message info"></div>
-  </section>
-
-  <section>
-    <h2>攝影機與骨架診斷</h2>
-    <div class="diagnostic-grid">
-      <div class="diagnostic-item"><span class="label">目前攝影機</span><span id="diagCameraLabel">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">要求模式</span><span id="diagRequestedMode">960 × 540 / 30fps</span></div>
-      <div class="diagnostic-item"><span class="label">實際解析度</span><span id="diagResolution">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">實際幀率</span><span id="diagFrameRate">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">影像比例</span><span id="diagAspectRatio">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">目前錄影格式</span><span id="diagMimeType">尚未錄影</span></div>
-      <div class="diagnostic-item"><span class="label">骨架引擎</span><span id="diagPoseEngine">Tasks Vision PoseLandmarker</span></div>
-      <div class="diagnostic-item"><span class="label">骨架狀態</span><span id="diagPoseStatus">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">骨架偵測 FPS</span><span id="diagPoseFps">尚未啟動</span></div>
-      <div class="diagnostic-item"><span class="label">錄製來源</span><span id="diagRecordSource">Canvas 骨架疊圖</span></div>
-      <div class="diagnostic-item wide"><span class="label">詳細訊息</span><pre id="diagDetails">啟動攝影機後顯示。</pre></div>
-      <div class="diagnostic-item wide"><span class="label">測試建議</span><span id="diagRecommendation">先用 960×540/30fps 測骨架穩定，再比較 640×480 與 1280×720。</span></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>錄製</h2>
-    <div class="option-box">
-      <span class="label-inline">錄影長度：</span>
-      <label><input type="radio" name="recordingLength" value="30"> 30 秒</label>
-      <label><input type="radio" name="recordingLength" value="60"> 1 分鐘</label>
-      <label><input type="radio" name="recordingLength" value="120" checked> 2 分鐘</label>
-    </div>
-    <div class="option-box">
-      <span class="label-inline">倒數時間大小：</span>
-      <label><input type="radio" name="timerSize" value="normal"> 一般字</label>
-      <label><input type="radio" name="timerSize" value="large" checked> 大字模式</label>
-    </div>
-    <div class="button-group">
-      <button id="startRecordingBtn" class="btn success" disabled>開始錄製</button>
-      <button id="stopRecordingBtn" class="btn danger" disabled>停止錄製</button>
-    </div>
-    <div id="prepCountdown" class="prep-countdown">準備就緒</div>
-    <div id="timerDisplay" class="main-timer">02:00</div>
-    <div id="recordingStatus" class="status-message info"></div>
-  </section>
-
-  <section>
-    <h2>下載</h2>
-    <button id="downloadBtn" class="btn info" disabled>下載骨架疊圖影片</button>
-    <div id="downloadStatus" class="status-message info"></div>
-  </section>
-</div>
-
-<script type="module" src="app.js?v=20260707-v207"></script>
+    <section class="note-card">
+      <h2>目前版本重點</h2>
+      <ul>
+        <li>即時測試頁預設使用 640×480 / 30fps / Full 模型。</li>
+        <li>原始影片不疊骨架，骨架資料另外存成 CSV，方便回播與研究分析。</li>
+        <li>按壓速率即時顯示；影像位移 px 只記錄，不做深度判斷。</li>
+        <li>檔案以開始測試當下日期時間產生 session id，避免檔名重複。</li>
+      </ul>
+    </section>
+  </main>
 </body>
 </html>
