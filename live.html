@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.6</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v226" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.7</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v227" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.6</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.7</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -48,7 +48,7 @@
         <label class="field">
           <span>攝影機來源</span>
           <select id="cameraSelect">
-            <option value="__auto__">自動選擇攝影機（可直接開啟）</option>
+            <option value="">尚未讀取攝影機</option>
           </select>
         </label>
 
@@ -67,13 +67,13 @@
           <span>畫面顯示</span>
           <select id="mirrorDisplay">
             <option value="off" selected>不鏡像顯示</option>
-            <option value="on">鏡像顯示（只影響螢幕，不影響原始影片與CSV）</option>
+            <option value="on">鏡像顯示</option>
           </select>
         </label>
 
         <div class="info-box">
           <strong>目前固定設定</strong>
-          <p>解析度 640×480、30fps、MediaPipe Full、audio:false。影像位移 px 只記錄於 CSV，不顯示於現場判斷欄。</p>
+          <p>解析度 640×480、30fps、MediaPipe Full、audio:false。影像位移 px 會記錄，但不顯示深度判斷。</p>
         </div>
       </aside>
 
@@ -89,6 +89,15 @@
 
       <aside class="panel operation-panel">
         <h2>現場操作與即時狀態</h2>
+        <div class="control-row">
+          <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
+          <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
+          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 10秒倒數後錄影</button>
+          <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
+        </div>
+
+        <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
+
         <section class="status-panel inline-status-panel">
           <div class="metric-card" id="qualityCard">
             <span>偵測品質</span>
@@ -116,18 +125,9 @@
           </div>
         </section>
 
-        <div class="control-row">
-          <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
-          <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
-          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 10秒倒數後錄影</button>
-          <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
-        </div>
-
-        <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
-
         <div class="info-box compact monitor-hint">
           <strong>提醒</strong>
-          <p>手機版建議採直式畫面；即時判斷會放在影片下方。倒數 10 秒期間不錄影、不記錄資料。</p>
+          <p>手機版建議採直式畫面；電腦搭配外接鏡頭建議橫式構圖。倒數 10 秒期間不錄影、不記錄資料。</p>
         </div>
 
         <div class="download-panel">
@@ -146,6 +146,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260821-v226"></script>
+  <script type="module" src="live.js?v=20260821-v227"></script>
 </body>
 </html>

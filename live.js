@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.6";
+const APP_VERSION = "CPR Research System V2.2.7";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -349,6 +349,7 @@ function getSelectedSide(pointMap) {
 
   let candidate;
   if (Number.isFinite(leftZ) && Number.isFinite(rightZ) && Math.abs(leftZ - rightZ) >= AUTO_SIDE_Z_MARGIN) {
+    // MediaPipe z 值較小者通常較靠近鏡頭。
     candidate = leftZ < rightZ ? "left" : "right";
   } else {
     candidate = leftScore >= rightScore ? "left" : "right";
@@ -357,6 +358,7 @@ function getSelectedSide(pointMap) {
   const candidateScore = candidate === "left" ? leftScore : rightScore;
   const currentScore = autoTrackedSide === "left" ? leftScore : rightScore;
 
+  // 保留 V2.2.3 的遲滯邏輯，避免自動選手臂左右來回跳。
   if (!autoTrackedSide || !["left", "right"].includes(autoTrackedSide)) {
     autoTrackedSide = candidate;
   } else if (candidate !== autoTrackedSide && candidateScore > currentScore + AUTO_SIDE_SWITCH_MARGIN) {
@@ -403,7 +405,7 @@ function sideMetricSnapshot(pointMap, side) {
   };
 }
 
-function computeMetricsfunction computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
+function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
   const trackedSide = getSelectedSide(pointMap);
   const trackedSideReason = getTrackedSideReason(pointMap, trackedSide);
   const leftSnapshot = sideMetricSnapshot(pointMap, "left");
@@ -559,7 +561,7 @@ function computeMetricsfunction computeMetrics(pointMap, elapsedSec, detectionMs
 
   setStatus(els.qualityCard, els.qualityStatus, qualityStatus, qualityLevel);
   const sideLabel = trackedSide === "right" ? "右側" : "左側";
-  setStatus(els.sideCard, els.sideStatus, `${sideLabel}｜${trackedSideReason.replace("自動：", "")}`, "ok");
+  if (els.sideCard && els.sideStatus) setStatus(els.sideCard, els.sideStatus, `${sideLabel}｜${trackedSideReason.replace("自動：", "")}`, "ok");
   setStatus(els.elbowCard, els.elbowStatus, elbowStatus, elbowLevel);
   setStatus(els.alignmentCard, els.alignmentStatus, alignmentStatus, alignmentLevel);
   setStatus(els.trunkCard, els.trunkStatus, trunkStatus, trunkLevel);
@@ -763,9 +765,10 @@ function metricsHeaders() {
   return [
     "app_version", "frame_index", "timestamp_iso", "elapsed_sec", "video_time_sec", "session_id", "file_base",
     "subject_code", "test_stage", "tracked_side", "tracked_side_reason",
-    "left_elbow_angle_deg", "right_elbow_angle_deg", "left_min_visibility", "right_min_visibility",
-    "left_mean_visibility", "right_mean_visibility", "left_arm_z", "right_arm_z",
-    "left_side_score", "right_side_score", "left_shoulder_wrist_offset_norm", "right_shoulder_wrist_offset_norm",
+    "left_elbow_angle_deg", "right_elbow_angle_deg",
+    "left_min_visibility", "right_min_visibility", "left_mean_visibility", "right_mean_visibility",
+    "left_arm_z", "right_arm_z", "left_side_score", "right_side_score",
+    "left_shoulder_wrist_offset_norm", "right_shoulder_wrist_offset_norm",
     "quality_status", "elbow_status", "alignment_status", "trunk_status", "rate_status", "rate_bpm",
     "compression_signal_px", "compression_amplitude_px", "wrist_y_px", "shoulder_y_px", "hip_y_px",
     "elbow_angle_deg", "elbow_angle_mean_deg", "elbow_angle_sd_deg",
@@ -777,77 +780,55 @@ function metricsHeaders() {
 
 function drawFrame() {
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
-  const mirror = els.mirrorDisplay?.value === "on";
-
   if (els.video.readyState >= 2) {
-    ctx.save();
-    if (mirror) {
+    if (els.mirrorDisplay?.value === "on") {
+      ctx.save();
       ctx.translate(els.canvas.width, 0);
       ctx.scale(-1, 1);
+      ctx.drawImage(els.video, 0, 0, els.canvas.width, els.canvas.height);
+      ctx.restore();
+    } else {
+      ctx.drawImage(els.video, 0, 0, els.canvas.width, els.canvas.height);
     }
-    ctx.drawImage(els.video, 0, 0, els.canvas.width, els.canvas.height);
-    ctx.restore();
   } else {
     ctx.fillStyle = "#020617";
     ctx.fillRect(0, 0, els.canvas.width, els.canvas.height);
   }
 
   if (latestLandmarks && performance.now() - latestPoseTimestampMs <= POSE_STALE_MS) {
-    const rawMap = getPointMap(latestLandmarks);
-    const displayMap = getSmoothedDisplayPointMap(rawMap, mirror);
-    drawSkeleton(displayMap);
+    drawSkeleton(latestLandmarks);
   }
 }
 
-function getSmoothedDisplayPointMap(rawMap, mirror) {
-  if (!rawMap || !Object.keys(rawMap).length) return rawMap;
-  if (!smoothedDisplayMap) {
-    smoothedDisplayMap = clonePointMap(rawMap);
-  } else {
-    for (const name of Object.keys(rawMap)) {
-      const p = rawMap[name];
-      if (!p) continue;
-      const prev = smoothedDisplayMap[name];
-      if (!prev) {
-        smoothedDisplayMap[name] = { ...p };
-        continue;
-      }
-      for (const key of ["x", "y", "z", "px", "py", "visibility"]) {
-        const nv = p[key];
-        const ov = prev[key];
-        if (Number.isFinite(nv) && Number.isFinite(ov)) {
-          prev[key] = (DISPLAY_SMOOTH_ALPHA * nv) + ((1 - DISPLAY_SMOOTH_ALPHA) * ov);
-        } else {
-          prev[key] = nv;
-        }
-      }
-      prev.step_px = p.step_px;
-      prev.jump = p.jump;
-    }
-  }
-
-  const out = clonePointMap(smoothedDisplayMap);
-  if (mirror) {
-    for (const p of Object.values(out)) {
-      if (!p) continue;
-      if (Number.isFinite(p.x)) p.x = 1 - p.x;
-      if (Number.isFinite(p.px)) p.px = els.canvas.width - p.px;
-    }
-  }
-  return out;
+function mirrorX(px) {
+  return els.mirrorDisplay?.value === "on" && Number.isFinite(px) ? els.canvas.width - px : px;
 }
 
-function clonePointMap(map) {
+function getSmoothedDisplayMap(pointMap) {
   const out = {};
-  for (const [k, v] of Object.entries(map || {})) out[k] = v ? { ...v } : v;
+  for (const name of POINTS) {
+    const p = pointMap[name];
+    if (!p) continue;
+    const prev = smoothedDisplayMap?.[name];
+    const clone = { ...p };
+    if (prev && Number.isFinite(prev.px) && Number.isFinite(prev.py) && Number.isFinite(p.px) && Number.isFinite(p.py)) {
+      clone.px = (DISPLAY_SMOOTH_ALPHA * p.px) + ((1 - DISPLAY_SMOOTH_ALPHA) * prev.px);
+      clone.py = (DISPLAY_SMOOTH_ALPHA * p.py) + ((1 - DISPLAY_SMOOTH_ALPHA) * prev.py);
+      clone.x = clone.px / els.canvas.width;
+      clone.y = clone.py / els.canvas.height;
+    }
+    out[name] = clone;
+  }
+  smoothedDisplayMap = out;
   return out;
 }
 
-function drawSkeleton(pm) {
-  const side = currentMetrics?.trackedSide && ["left", "right"].includes(currentMetrics.trackedSide)
-    ? currentMetrics.trackedSide
-    : getSelectedSide(pm);
+function drawSkeleton(landmarks) {
+  const rawPm = getPointMap(landmarks);
+  const side = getSelectedSide(rawPm);
+  const pm = getSmoothedDisplayMap(rawPm);
 
+  // 先畫軀幹與髖部，讓 CPR 姿勢分析需要的 shoulder-hip linkage 更明顯。
   drawLine(pm.left_shoulder, pm.right_shoulder, "rgba(255,255,255,0.62)", 3);
   drawLine(pm.left_hip, pm.right_hip, "rgba(52, 211, 153, 0.90)", 4);
   drawLine(pm.left_shoulder, pm.left_hip, "rgba(52, 211, 153, 0.55)", 3);
@@ -862,7 +843,7 @@ function drawSkeleton(pm) {
   drawPoint(pm.neck_mid, "#ffffff", 5, "neck");
 }
 
-function drawSidefunction drawSide(pm, side, color) {
+function drawSide(pm, side, color) {
   const S = pm[`${side}_shoulder`];
   const E = pm[`${side}_elbow`];
   const W = pm[`${side}_wrist`];
@@ -883,8 +864,8 @@ function drawLine(a, b, color, width) {
   ctx.lineWidth = width;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(a.px, a.py);
-  ctx.lineTo(b.px, b.py);
+  ctx.moveTo(mirrorX(a.px), a.py);
+  ctx.lineTo(mirrorX(b.px), b.py);
   ctx.stroke();
   ctx.restore();
 }
@@ -896,15 +877,16 @@ function drawPoint(p, color, radius, label) {
   ctx.strokeStyle = "rgba(0,0,0,0.7)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(p.px, p.py, radius, 0, Math.PI * 2);
+  const dx = mirrorX(p.px);
+  ctx.arc(dx, p.py, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
   if (label) {
     ctx.font = "bold 13px Arial";
     ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.fillRect(p.px + 7, p.py - 18, 34, 18);
+    ctx.fillRect(dx + 7, p.py - 18, 34, 18);
     ctx.fillStyle = "#fff";
-    ctx.fillText(label, p.px + 10, p.py - 5);
+    ctx.fillText(label, dx + 10, p.py - 5);
   }
   ctx.restore();
 }
@@ -913,116 +895,43 @@ async function loadModel() {
   if (poseLandmarker) return;
   setMessage("正在載入 MediaPipe Full 模型，第一次載入可能需要數秒。");
   const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
-  try {
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "GPU" },
-      runningMode: "VIDEO",
-      numPoses: 1,
-      minPoseDetectionConfidence: 0.5,
-      minPosePresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-  } catch (gpuErr) {
-    console.warn("GPU delegate 載入失敗，改用 CPU delegate。", gpuErr);
-    setMessage("GPU 載入失敗，正在改用 CPU 模式載入 MediaPipe Full 模型...");
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "CPU" },
-      runningMode: "VIDEO",
-      numPoses: 1,
-      minPoseDetectionConfidence: 0.5,
-      minPosePresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-  }
-}
-
-function addAutoCameraOption(label = "自動選擇攝影機") {
-  const opt = document.createElement("option");
-  opt.value = "__auto__";
-  opt.textContent = label;
-  els.cameraSelect.appendChild(opt);
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: FULL_MODEL_URL, delegate: "GPU" },
+    runningMode: "VIDEO",
+    numPoses: 1,
+    minPoseDetectionConfidence: 0.5,
+    minPosePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
 }
 
 async function refreshCameras() {
-  const previous = els.cameraSelect.value || "__auto__";
-  els.cameraSelect.innerHTML = "";
-  addAutoCameraOption("自動選擇攝影機（可直接開啟）");
-
+  const previous = els.cameraSelect.value;
   try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      throw new Error("此瀏覽器不支援 enumerateDevices。");
-    }
-
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videos = devices.filter(d => d.kind === "videoinput");
-
+    els.cameraSelect.innerHTML = "";
+    if (!videos.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "找不到攝影機，請先允許權限";
+      els.cameraSelect.appendChild(opt);
+      return;
+    }
     videos.forEach((device, idx) => {
-      if (!device.deviceId) return;
       const opt = document.createElement("option");
       opt.value = device.deviceId;
-      opt.textContent = device.label || `攝影機 ${idx + 1}（允許權限後會顯示名稱）`;
+      opt.textContent = device.label || `攝影機 ${idx + 1}`;
       els.cameraSelect.appendChild(opt);
     });
-
-    if (previous && previous !== "__auto__" && videos.some(d => d.deviceId === previous)) {
+    if (previous && videos.some(d => d.deviceId === previous)) {
       els.cameraSelect.value = previous;
-    } else {
-      els.cameraSelect.value = "__auto__";
-    }
-
-    if (videos.length === 0) {
-      setMessage("目前尚未讀到攝影機清單；仍可直接按「開啟攝影機與模型」觸發權限。若仍失敗，請檢查瀏覽器攝影機權限。");
     }
   } catch (err) {
-    els.cameraSelect.value = "__auto__";
-    setMessage(`攝影機清單暫時無法讀取：${err.message}。仍可直接按「開啟攝影機與模型」。`);
+    setMessage(`讀取攝影機清單失敗：${err.message}`);
   }
 }
 
-function buildVideoConstraints(selectedDeviceId, strictDevice = true) {
-  // V2.2.6：先回到穩定的基本相機要求，避免過度自動判斷造成啟動失敗。
-  // 桌機研究主設定：640×480 / 30fps。手機若回傳直式畫面，系統再用 actual_settings 記錄。
-  currentRequestedWidth = DEFAULT_WIDTH;
-  currentRequestedHeight = DEFAULT_HEIGHT;
-  currentRequestedQuality = `${currentRequestedWidth}x${currentRequestedHeight}x${DEFAULT_FPS}`;
-
-  const constraints = {
-    width: { ideal: DEFAULT_WIDTH },
-    height: { ideal: DEFAULT_HEIGHT },
-    frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
-    aspectRatio: { ideal: DEFAULT_WIDTH / DEFAULT_HEIGHT }
-  };
-
-  if (selectedDeviceId && selectedDeviceId !== "__auto__") {
-    constraints.deviceId = strictDevice ? { exact: selectedDeviceId } : { ideal: selectedDeviceId };
-  }
-  return constraints;
-}
-
-async function openMediaStreamWithFallback(selectedDeviceId) {
-  const attempts = [];
-  if (selectedDeviceId && selectedDeviceId !== "__auto__") {
-    attempts.push({ label: "指定攝影機 exact", constraints: buildVideoConstraints(selectedDeviceId, true) });
-    attempts.push({ label: "指定攝影機 ideal", constraints: buildVideoConstraints(selectedDeviceId, false) });
-  }
-
-  // 自動模式不加 facingMode，讓瀏覽器自己選最可用的鏡頭；這比硬指定前/後鏡頭穩定。
-  attempts.push({ label: "自動選擇攝影機 640x480", constraints: buildVideoConstraints("__auto__", false) });
-  attempts.push({ label: "瀏覽器預設攝影機", constraints: true });
-
-  let lastErr = null;
-  for (const attempt of attempts) {
-    try {
-      setMessage(`正在嘗試啟動：${attempt.label}...`);
-      const stream = await navigator.mediaDevices.getUserMedia({ video: attempt.constraints, audio: false });
-      return { stream, attemptLabel: attempt.label };
-    } catch (err) {
-      lastErr = err;
-      console.warn(`getUserMedia 嘗試失敗：${attempt.label}`, err);
-    }
-  }
-  throw lastErr || new Error("無法啟動攝影機");
-}
 
 function shouldRequestPortraitCamera() {
   return window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches;
@@ -1038,55 +947,64 @@ function applyVideoCardAspect(width, height) {
 async function startCameraAndModel() {
   try {
     els.startCameraBtn.disabled = true;
-    setMessage("正在啟動攝影機...若第一次使用，請先允許瀏覽器攝影機權限。");
+    setMessage("正在啟動攝影機與模型...");
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("此瀏覽器不支援 getUserMedia，請確認使用 HTTPS 網址與新版瀏覽器。");
+    // 先要求一次權限，讓瀏覽器提供攝影機名稱。若已授權，此步驟會很快。
+    if (!els.cameraSelect.value) {
+      const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      temp.getTracks().forEach(t => t.stop());
+      await refreshCameras();
     }
 
-    const selectedDeviceId = els.cameraSelect.value || "__auto__";
-    if (mediaStream) stopCameraOnly();
+    await loadModel();
 
-    // V2.2.6：先啟動攝影機，再載入 MediaPipe。
-    // 這樣就算模型第一次載入較慢，也不會讓使用者誤以為相機抓不到。
-    const opened = await openMediaStreamWithFallback(selectedDeviceId);
-    mediaStream = opened.stream;
+    const selectedDeviceId = els.cameraSelect.value;
+    const portraitRequest = shouldRequestPortraitCamera();
+    currentRequestedWidth = portraitRequest ? 480 : DEFAULT_WIDTH;
+    currentRequestedHeight = portraitRequest ? 640 : DEFAULT_HEIGHT;
+    currentRequestedQuality = `${currentRequestedWidth}x${currentRequestedHeight}x${DEFAULT_FPS}`;
+    const videoConstraints = {
+      width: { ideal: currentRequestedWidth },
+      height: { ideal: currentRequestedHeight },
+      frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
+      aspectRatio: { ideal: currentRequestedWidth / currentRequestedHeight }
+    };
+    if (selectedDeviceId) {
+      videoConstraints.deviceId = { exact: selectedDeviceId };
+    }
+
+    if (mediaStream) stopCameraOnly();
+    mediaStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
     els.video.srcObject = mediaStream;
     await els.video.play();
 
     const track = mediaStream.getVideoTracks()[0];
     cameraSettings = track.getSettings();
-    selectedCameraLabel = track.label || opened.attemptLabel || "攝影機";
-    selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "auto";
+    selectedCameraLabel = track.label || "";
+    selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "";
 
     els.canvas.width = cameraSettings.width || currentRequestedWidth;
     els.canvas.height = cameraSettings.height || currentRequestedHeight;
     applyVideoCardAspect(els.canvas.width, els.canvas.height);
 
-    isCameraRunning = true;
-    els.stopCameraBtn.disabled = false;
-    els.startTestBtn.disabled = true;
-    els.recordStatus.textContent = "攝影機已啟動";
-    const portraitMessage = cameraSettings.width < cameraSettings.height
-      ? "｜目前為直式畫面；正式桌機研究建議使用橫向 640×480 構圖"
-      : "";
-    setMessage(`攝影機已啟動：${selectedCameraLabel || "攝影機"}｜啟動方式 ${opened.attemptLabel}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}。正在載入 MediaPipe Full 模型...`);
-
-    // 權限取得後非阻塞刷新清單；不要讓清單刷新影響已開啟的攝影機。
-    refreshCameras().catch(() => {});
+    await refreshCameras();
     if (cameraSettings?.deviceId && [...els.cameraSelect.options].some(o => o.value === cameraSettings.deviceId)) {
       els.cameraSelect.value = cameraSettings.deviceId;
     }
 
-    await loadModel();
+    isCameraRunning = true;
+    els.stopCameraBtn.disabled = false;
     els.startTestBtn.disabled = false;
-    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜MediaPipe Full 已就緒｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
+    els.recordStatus.textContent = "攝影機已啟動";
+    const portraitMessage = cameraSettings.width < cameraSettings.height
+      ? (shouldRequestPortraitCamera() ? "｜手機直式錄影版面" : "｜直向畫面，電腦研究錄影建議改橫式構圖")
+      : "";
+    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜要求 ${currentRequestedQuality}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
 
-    smoothedDisplayMap = null;
     startLoop();
   } catch (err) {
     els.startCameraBtn.disabled = false;
-    setMessage(`啟動失敗：${err.name || "Error"}｜${err.message}。請確認：1. GitHub Pages 是 https，2. 瀏覽器已允許攝影機權限，3. 其他程式沒有佔用攝影機。`);
+    setMessage(`啟動失敗：${err.message}。若選外接鏡頭仍跳回內建鏡頭，請重新整理清單後再選一次。`);
   }
 }
 
@@ -1094,6 +1012,7 @@ function startLoop() {
   if (rafId) cancelAnimationFrame(rafId);
   lastVideoTime = -1;
   lastFramePerfMs = null;
+  smoothedDisplayMap = null;
 
   const loop = () => {
     if (!isCameraRunning || !poseLandmarker || !mediaStream) return;
@@ -1181,7 +1100,6 @@ function startTest() {
   recordingDurationSec = Number(els.durationSec.value || 120);
   autoTrackedSide = "right";
   lastRecordPointMap = null;
-  smoothedDisplayMap = null;
 
   isPreparing = true;
   els.recordStatus.textContent = "準備倒數";
@@ -1347,14 +1265,8 @@ function buildMetadata() {
       min_tracking_confidence: 0.5,
       num_poses: 1
     },
-    display: {
-      mirror_display: els.mirrorDisplay?.value === "on",
-      display_smoothing_alpha: DISPLAY_SMOOTH_ALPHA,
-      display_smoothing_note: "Smoothing is applied to on-screen skeleton only; CSV landmarks keep raw MediaPipe coordinates."
-    },
     analysis: {
       tracked_side_mode: els.trackedSideMode.value,
-      tracked_side_auto_rule: "auto mode prioritizes camera-facing arm using MediaPipe z; if depth is unclear, it falls back to visibility and in-frame stability",
       jump_threshold_px: JUMP_THRESHOLD_PX,
       landmark_row_count: landmarkRows.length,
       posture_metric_row_count: metricRows.length,
@@ -1415,6 +1327,7 @@ function stopCameraOnly() {
   }
   isCameraRunning = false;
   latestLandmarks = null;
+  smoothedDisplayMap = null;
   latestPoseCount = 0;
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
 }
@@ -1437,7 +1350,7 @@ function initEvents() {
       temp.getTracks().forEach(t => t.stop());
     } catch (_) {}
     await refreshCameras();
-    setMessage("攝影機清單已重新整理。若清單仍看不到鏡頭，可以直接用「自動選擇攝影機」啟動。");
+    setMessage("攝影機清單已重新整理。請選擇要使用的鏡頭後再啟動。");
   });
   els.startCameraBtn.addEventListener("click", startCameraAndModel);
   els.stopCameraBtn.addEventListener("click", stopCamera);
@@ -1455,12 +1368,14 @@ function initEvents() {
 
 async function init() {
   initEvents();
-  // V2.2.6：不等待攝影機清單完成，避免 enumerateDevices 卡住導致按鈕不可用。
-  els.cameraSelect.innerHTML = "";
-  addAutoCameraOption("自動選擇攝影機（可直接開啟）");
-  refreshCameras().catch(() => {});
+  await refreshCameras();
   els.timerDisplay.textContent = formatTime(Number(els.durationSec.value || 120));
-  setMessage("可以直接按「開啟攝影機與模型」。若要指定外接鏡頭，再按「重新整理攝影機清單」。");
+  setStatus(els.qualityCard, els.qualityStatus, "待機", "");
+  if (els.sideCard && els.sideStatus) setStatus(els.sideCard, els.sideStatus, "待機", "");
+  setStatus(els.elbowCard, els.elbowStatus, "待機", "");
+  setStatus(els.alignmentCard, els.alignmentStatus, "待機", "");
+  setStatus(els.trunkCard, els.trunkStatus, "待機", "");
+  setStatus(els.rateCard, els.rateStatus, "估算中", "");
 }
 
 init();
