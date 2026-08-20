@@ -14,7 +14,9 @@
   --warn: #f59e0b;
   --bad: #dc2626;
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --video-aspect: 4 / 3;
 }
+
 
 * { box-sizing: border-box; }
 
@@ -178,7 +180,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .live-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 330px) minmax(520px, 1fr);
+  grid-template-columns: minmax(250px, 310px) minmax(520px, 1fr) minmax(300px, 380px);
   gap: 18px;
   align-items: start;
 }
@@ -225,12 +227,25 @@ input:focus, select:focus {
 .info-box p { margin: 8px 0 0; color: var(--muted); line-height: 1.55; }
 .info-box.compact { font-size: 14px; }
 
-.video-column { display: grid; gap: 14px; }
+.video-column {
+  display: grid;
+  gap: 14px;
+  position: sticky;
+  top: 14px;
+}
+
+.operation-panel {
+  display: grid;
+  gap: 14px;
+  position: sticky;
+  top: 14px;
+}
+.operation-panel h2 { margin-bottom: 0; }
 
 .video-card {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: var(--video-aspect, 4 / 3);
   overflow: hidden;
   border-radius: 24px;
   background: #020617;
@@ -246,6 +261,12 @@ input:focus, select:focus {
   object-fit: contain;
 }
 .video-card video { display: none; }
+.video-card.video-landscape { --video-aspect: 4 / 3; }
+.video-card.video-portrait {
+  --video-aspect: 3 / 4;
+  width: min(100%, 440px);
+  margin-inline: auto;
+}
 
 .video-overlay {
   position: absolute;
@@ -263,7 +284,7 @@ input:focus, select:focus {
 
 .control-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
@@ -280,7 +301,7 @@ input:focus, select:focus {
 .status-panel h2 { margin-bottom: 4px; }
 .inline-status-panel {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   align-items: stretch;
 }
@@ -315,7 +336,7 @@ input:focus, select:focus {
 .download-panel h2 { margin-bottom: 12px; }
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 .download-grid button { min-height: 52px; }
@@ -325,10 +346,11 @@ input:focus, select:focus {
   .live-layout {
     grid-template-columns: 1fr;
   }
-  .settings-panel { order: 2; }
-  .video-column { order: 1; }
-  .inline-status-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .inline-status-panel .metric-card.muted, .inline-status-panel .info-box { grid-column: 1 / -1; }
+  .settings-panel { order: 3; }
+  .video-column { order: 1; position: static; }
+  .operation-panel { order: 2; position: static; }
+  .inline-status-panel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .inline-status-panel .metric-card.muted { grid-column: span 2; }
   .download-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
@@ -337,15 +359,43 @@ input:focus, select:focus {
   .hero-card, .note-card, .panel { border-radius: 18px; padding: 16px; }
   .topbar { display: block; }
   .version-pill { margin-top: 10px; }
-  .control-row { grid-template-columns: 1fr; }
+  .control-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .control-row button { min-height: 50px; padding: 10px 8px; font-size: 15px; }
   .download-grid { grid-template-columns: 1fr; }
   .video-card { border-radius: 18px; }
+  .video-card.video-portrait { width: min(100%, calc(43vh * 0.75)); }
+  .video-card.video-landscape { width: min(100%, calc(43vh * 1.333)); margin-inline: auto; }
   .video-overlay { font-size: 16px; padding: 7px 10px; }
   .top-right { font-size: 22px; }
   .inline-status-panel { gap: 8px; padding: 12px; }
   .inline-status-panel h2 { font-size: 18px; margin: 0; }
   .metric-card { padding: 12px; border-radius: 14px; }
   .metric-card span { font-size: 12px; margin-bottom: 4px; }
-  .metric-card strong { font-size: 18px; }
+  .metric-card strong { font-size: 17px; }
   .metric-card.muted strong { font-size: 14px; }
+}
+
+
+/* V2.2.3: 現場測試版版面修正 */
+.download-panel {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding-top: 4px;
+}
+.download-panel h2 { font-size: 18px; margin: 0 0 10px; }
+@media (min-width: 1181px) {
+  .video-card { min-height: 0; }
+  .settings-panel, .operation-panel, .video-column { max-height: calc(100vh - 28px); }
+  .settings-panel, .operation-panel { overflow: auto; }
+}
+@media (max-width: 720px) {
+  .app-shell { padding-bottom: 20px; }
+  .topbar h1 { font-size: 24px; margin-bottom: 6px; }
+  .back-link { margin-bottom: 8px; }
+  .eyebrow { font-size: 12px; }
+  .operation-panel { padding: 12px; gap: 10px; }
+  .operation-panel > h2 { font-size: 18px; }
+  .inline-status-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inline-status-panel .metric-card.muted { grid-column: 1 / -1; }
+  .monitor-hint { display: none; }
+  .status-line { font-size: 14px; padding: 10px; }
 }

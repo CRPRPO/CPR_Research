@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.2</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v222" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.3</title>
+  <link rel="stylesheet" href="style.css?v=20260821-v223" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.2</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.3</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -70,46 +70,17 @@
       </aside>
 
       <section class="video-column">
-        <div class="video-card">
+        <div class="video-card video-landscape" id="videoCard">
           <video id="video" playsinline muted></video>
           <canvas id="overlayCanvas" width="640" height="480"></canvas>
           <div class="video-overlay top-left" id="recordStatus">待機</div>
           <div class="video-overlay top-right" id="timerDisplay">00:00</div>
           <div class="video-overlay bottom-left" id="sessionDisplay">尚未開始</div>
         </div>
+      </section>
 
-        <aside class="panel status-panel inline-status-panel">
-        <h2>即時狀態</h2>
-        <div class="metric-card" id="qualityCard">
-          <span>偵測品質</span>
-          <strong id="qualityStatus">待機</strong>
-        </div>
-        <div class="metric-card" id="elbowCard">
-          <span>手肘</span>
-          <strong id="elbowStatus">待機</strong>
-        </div>
-        <div class="metric-card" id="alignmentCard">
-          <span>肩腕對齊</span>
-          <strong id="alignmentStatus">待機</strong>
-        </div>
-        <div class="metric-card" id="trunkCard">
-          <span>軀幹參與</span>
-          <strong id="trunkStatus">待機</strong>
-        </div>
-        <div class="metric-card" id="rateCard">
-          <span>按壓速率</span>
-          <strong id="rateStatus">估算中</strong>
-        </div>
-        <div class="metric-card muted">
-          <span>影像位移 px</span>
-          <strong>記錄中，不做深度判斷</strong>
-        </div>
-        <div class="info-box compact">
-          <strong>提醒</strong>
-          <p>若顯示偵測不穩，請優先調整鏡頭角度，讓肩、肘、腕、髖完整入鏡。倒數 10 秒期間不錄影、不記錄資料。</p>
-        </div>
-      </aside>
-
+      <aside class="panel operation-panel">
+        <h2>現場操作與即時狀態</h2>
         <div class="control-row">
           <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
           <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
@@ -119,7 +90,39 @@
 
         <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
 
-        <div class="download-panel panel">
+        <section class="status-panel inline-status-panel">
+          <div class="metric-card" id="qualityCard">
+            <span>偵測品質</span>
+            <strong id="qualityStatus">待機</strong>
+          </div>
+          <div class="metric-card" id="elbowCard">
+            <span>手肘</span>
+            <strong id="elbowStatus">待機</strong>
+          </div>
+          <div class="metric-card" id="alignmentCard">
+            <span>肩腕對齊</span>
+            <strong id="alignmentStatus">待機</strong>
+          </div>
+          <div class="metric-card" id="trunkCard">
+            <span>軀幹參與</span>
+            <strong id="trunkStatus">待機</strong>
+          </div>
+          <div class="metric-card" id="rateCard">
+            <span>按壓速率</span>
+            <strong id="rateStatus">估算中</strong>
+          </div>
+          <div class="metric-card muted">
+            <span>影像位移 px</span>
+            <strong>記錄中，不做深度判斷</strong>
+          </div>
+        </section>
+
+        <div class="info-box compact monitor-hint">
+          <strong>提醒</strong>
+          <p>手機版建議採直式畫面；電腦搭配外接鏡頭建議橫式構圖。倒數 10 秒期間不錄影、不記錄資料。</p>
+        </div>
+
+        <div class="download-panel">
           <h2>下載資料</h2>
           <div class="download-grid">
             <button id="downloadRawBtn" type="button" disabled>下載原始影片</button>
@@ -129,11 +132,12 @@
             <button id="downloadZipBtn" class="primary-btn" type="button" disabled>一鍵下載 ZIP</button>
           </div>
         </div>
+      </aside>
       </section>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260821-v222"></script>
+  <script type="module" src="live.js?v=20260821-v223"></script>
 </body>
 </html>

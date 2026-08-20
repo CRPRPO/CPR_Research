@@ -1,12 +1,15 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.2";
+const APP_VERSION = "CPR Research System V2.2.3";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
 const DEFAULT_WIDTH = 640;
 const DEFAULT_HEIGHT = 480;
 const DEFAULT_FPS = 30;
+let currentRequestedWidth = DEFAULT_WIDTH;
+let currentRequestedHeight = DEFAULT_HEIGHT;
+let currentRequestedQuality = "640x480x30";
 const JUMP_THRESHOLD_PX = 25;
 const QUALITY_MIN_VISIBILITY = 0.60;
 const POSE_STALE_MS = 500;
@@ -41,6 +44,7 @@ const els = {
   refreshCamerasBtn: document.getElementById("refreshCamerasBtn"),
   trackedSideMode: document.getElementById("trackedSideMode"),
   video: document.getElementById("video"),
+  videoCard: document.getElementById("videoCard"),
   canvas: document.getElementById("overlayCanvas"),
   recordStatus: document.getElementById("recordStatus"),
   timerDisplay: document.getElementById("timerDisplay"),
@@ -323,7 +327,7 @@ function getSelectedSide(pointMap) {
   const candidateScore = candidate === "left" ? leftScore : rightScore;
   const currentScore = autoTrackedSide === "left" ? leftScore : rightScore;
 
-  // V2.2.2：自動選手臂加入遲滯，避免初期 visibility 不穩時左右來回跳。
+  // V2.2.3：自動選手臂加入遲滯，避免初期 visibility 不穩時左右來回跳。
   if (!autoTrackedSide || !["left", "right"].includes(autoTrackedSide)) {
     autoTrackedSide = candidate;
   } else if (candidate !== autoTrackedSide && candidateScore > currentScore + AUTO_SIDE_SWITCH_MARGIN) {
@@ -559,9 +563,9 @@ function makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameI
     phase: "recording",
     model_key: "full",
     model_label: "Pose Landmarker Full",
-    requested_quality: "640x480x30",
-    requested_width: DEFAULT_WIDTH,
-    requested_height: DEFAULT_HEIGHT,
+    requested_quality: currentRequestedQuality,
+    requested_width: currentRequestedWidth,
+    requested_height: currentRequestedHeight,
     requested_fps: DEFAULT_FPS,
     actual_width: cameraSettings?.width || "",
     actual_height: cameraSettings?.height || "",
@@ -792,6 +796,18 @@ async function refreshCameras() {
   }
 }
 
+
+function shouldRequestPortraitCamera() {
+  return window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches;
+}
+
+function applyVideoCardAspect(width, height) {
+  if (!els.videoCard || !width || !height) return;
+  els.videoCard.style.setProperty("--video-aspect", `${width} / ${height}`);
+  els.videoCard.classList.toggle("video-portrait", height > width);
+  els.videoCard.classList.toggle("video-landscape", width >= height);
+}
+
 async function startCameraAndModel() {
   try {
     els.startCameraBtn.disabled = true;
@@ -807,11 +823,15 @@ async function startCameraAndModel() {
     await loadModel();
 
     const selectedDeviceId = els.cameraSelect.value;
+    const portraitRequest = shouldRequestPortraitCamera();
+    currentRequestedWidth = portraitRequest ? 480 : DEFAULT_WIDTH;
+    currentRequestedHeight = portraitRequest ? 640 : DEFAULT_HEIGHT;
+    currentRequestedQuality = `${currentRequestedWidth}x${currentRequestedHeight}x${DEFAULT_FPS}`;
     const videoConstraints = {
-      width: { ideal: DEFAULT_WIDTH },
-      height: { ideal: DEFAULT_HEIGHT },
+      width: { ideal: currentRequestedWidth },
+      height: { ideal: currentRequestedHeight },
       frameRate: { ideal: DEFAULT_FPS, max: DEFAULT_FPS },
-      aspectRatio: { ideal: DEFAULT_WIDTH / DEFAULT_HEIGHT }
+      aspectRatio: { ideal: currentRequestedWidth / currentRequestedHeight }
     };
     if (selectedDeviceId) {
       videoConstraints.deviceId = { exact: selectedDeviceId };
@@ -827,8 +847,9 @@ async function startCameraAndModel() {
     selectedCameraLabel = track.label || "";
     selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "";
 
-    els.canvas.width = cameraSettings.width || DEFAULT_WIDTH;
-    els.canvas.height = cameraSettings.height || DEFAULT_HEIGHT;
+    els.canvas.width = cameraSettings.width || currentRequestedWidth;
+    els.canvas.height = cameraSettings.height || currentRequestedHeight;
+    applyVideoCardAspect(els.canvas.width, els.canvas.height);
 
     await refreshCameras();
     if (cameraSettings?.deviceId && [...els.cameraSelect.options].some(o => o.value === cameraSettings.deviceId)) {
@@ -839,10 +860,10 @@ async function startCameraAndModel() {
     els.stopCameraBtn.disabled = false;
     els.startTestBtn.disabled = false;
     els.recordStatus.textContent = "攝影機已啟動";
-    const portraitWarning = cameraSettings.width < cameraSettings.height
-      ? "｜偵測到直向畫面，正式研究建議手機橫放後重新開啟攝影機"
+    const portraitMessage = cameraSettings.width < cameraSettings.height
+      ? (shouldRequestPortraitCamera() ? "｜手機直式錄影版面" : "｜直向畫面，電腦研究錄影建議改橫式構圖")
       : "";
-    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitWarning}`);
+    setMessage(`已啟動：${selectedCameraLabel || "攝影機"}｜要求 ${currentRequestedQuality}｜實際 ${cameraSettings.width}×${cameraSettings.height} / ${cameraSettings.frameRate || "?"}fps${portraitMessage}`);
 
     startLoop();
   } catch (err) {
@@ -1090,9 +1111,9 @@ function buildMetadata() {
       size_bytes: rawVideoBlob?.size || 0
     },
     camera: {
-      requested_quality: "640x480x30",
-      requested_width: DEFAULT_WIDTH,
-      requested_height: DEFAULT_HEIGHT,
+      requested_quality: currentRequestedQuality,
+      requested_width: currentRequestedWidth,
+      requested_height: currentRequestedHeight,
       requested_fps: DEFAULT_FPS,
       actual_settings: cameraSettings,
       camera_label: selectedCameraLabel,
