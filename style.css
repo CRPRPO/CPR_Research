@@ -734,3 +734,71 @@ input:focus, select:focus {
     align-self: flex-start;
   }
 }
+
+/* V2.3.1.1: responsive playback layout stabilization only.
+   V2.3.1 CSV parsing/validation and V2.3.0 playback behavior are unchanged. */
+@media (min-width: 981px) {
+  .replay-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+}
+
+.replay-control-panel {
+  /* Mode 2 does not need a floating control panel. Keeping it in normal flow
+     avoids apparent overlap while a tall video / validation panel is scrolled. */
+  position: static;
+  min-width: 0;
+}
+
+.replay-main-column {
+  min-width: 0;
+}
+
+.replay-video-stage {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.replay-video-card {
+  --replay-display-max-width: 640px;
+  width: min(100%, var(--replay-display-max-width));
+  min-height: 0;
+  margin-inline: auto;
+  flex: 0 1 auto;
+}
+
+.replay-video-card video {
+  object-fit: contain;
+}
+
+@media (max-width: 980px) {
+  .replay-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .replay-control-panel,
+  .replay-main-column {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .replay-shell {
+    width: min(100% - 12px, 100%);
+  }
+
+  .replay-video-card {
+    min-height: 0;
+    border-radius: 16px;
+  }
+
+  .replay-input-section input[type="file"],
+  .replay-input-section select,
+  .replay-input-section button {
+    max-width: 100%;
+  }
+}
+

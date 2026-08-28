@@ -1,8 +1,8 @@
 "use strict";
 
-// CPR Research System V2.3.1
-// Mode 2, Phase 2: keep V2.3.0 local video playback unchanged,
-// and add local landmarks.csv parsing + structure validation only.
+// CPR Research System V2.3.1.1
+// Mode 2 layout stabilization: keep V2.3.1 playback and CSV validation logic unchanged,
+// and only add responsive display sizing for desktop/tablet/mobile playback.
 // No upload, no MediaPipe, no skeleton drawing, no video/CSV synchronization.
 
 const els = {
@@ -140,6 +140,50 @@ function resetVideoInfo() {
   els.fileTypeValue.textContent = "—";
 }
 
+// V2.3.1.1: display-only sizing.
+// Keep the whole source frame visible, avoid unnecessary upscaling, and cap playback
+// height so later canvas overlays can share the same stable display rectangle.
+function updateReplayDisplayGeometry() {
+  const sourceWidth = els.replayVideo.videoWidth;
+  const sourceHeight = els.replayVideo.videoHeight;
+
+  if (!(sourceWidth > 0 && sourceHeight > 0)) {
+    els.replayVideoCard.style.removeProperty("--replay-display-max-width");
+    els.replayVideoCard.removeAttribute("data-video-orientation");
+    return;
+  }
+
+  const aspect = sourceWidth / sourceHeight;
+  const viewportWidth = Math.max(window.innerWidth || 0, 320);
+  const viewportHeight = Math.max(window.innerHeight || 0, 480);
+
+  let heightFraction = 0.58;
+  let absoluteHeightCap = 650;
+
+  if (viewportWidth <= 560) {
+    heightFraction = 0.52;
+    absoluteHeightCap = 520;
+  } else if (viewportWidth <= 980) {
+    heightFraction = 0.55;
+    absoluteHeightCap = 600;
+  }
+
+  const maxDisplayHeight = Math.min(viewportHeight * heightFraction, absoluteHeightCap);
+  const maxWidthFromHeight = maxDisplayHeight * aspect;
+  const desktopWidthCap = viewportWidth > 980 ? 1040 : viewportWidth;
+
+  // Do not enlarge beyond the source video's native width. CSS can still scale down
+  // when the page or device is narrower than this cap.
+  const displayMaxWidth = Math.max(160, Math.min(sourceWidth, maxWidthFromHeight, desktopWidthCap));
+
+  els.replayVideoCard.style.setProperty("--replay-display-max-width", `${displayMaxWidth.toFixed(1)}px`);
+  els.replayVideoCard.dataset.videoOrientation = aspect > 1.05
+    ? "landscape"
+    : aspect < 0.95
+      ? "portrait"
+      : "square";
+}
+
 function resetPlayer({ preserveMessage = false } = {}) {
   els.replayVideo.pause();
   els.replayVideo.removeAttribute("src");
@@ -154,6 +198,8 @@ function resetPlayer({ preserveMessage = false } = {}) {
   els.replayVideo.playbackRate = 1;
   els.replayEmptyState.hidden = false;
   els.replayVideoCard.style.removeProperty("--video-aspect");
+  els.replayVideoCard.style.removeProperty("--replay-display-max-width");
+  els.replayVideoCard.removeAttribute("data-video-orientation");
   resetVideoInfo();
 
   if (!preserveMessage) {
@@ -539,6 +585,7 @@ els.replayVideo.addEventListener("loadedmetadata", () => {
   if (width > 0 && height > 0) {
     els.resolutionValue.textContent = `${width} × ${height}`;
     els.replayVideoCard.style.setProperty("--video-aspect", `${width} / ${height}`);
+    updateReplayDisplayGeometry();
   } else {
     els.resolutionValue.textContent = "無法讀取";
   }
@@ -577,6 +624,10 @@ els.replayVideo.addEventListener("error", () => {
   els.resolutionValue.textContent = "讀取失敗";
   els.durationValue.textContent = "讀取失敗";
   setMessage("瀏覽器無法播放這個影片。請確認檔案未損壞，並優先使用 V2.2.7 直接下載的 webm 原始影片。", "error");
+});
+
+window.addEventListener("resize", () => {
+  if (activeFile) updateReplayDisplayGeometry();
 });
 
 window.addEventListener("beforeunload", () => {

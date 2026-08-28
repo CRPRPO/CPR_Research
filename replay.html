@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.1</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v231" />
+  <title>本機回播模式｜CPR Research System V2.3.1.1</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v2311" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.1</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.1.1</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.1｜Local-only</div>
+      <div class="version-pill">V2.3.1.1｜Responsive Local-only</div>
     </header>
 
     <section class="replay-layout">
@@ -74,11 +74,13 @@
       </aside>
 
       <section class="replay-main-column">
-        <div class="video-card replay-video-card" id="replayVideoCard">
-          <video id="replayVideo" controls playsinline preload="metadata"></video>
-          <div class="replay-empty-state" id="replayEmptyState">
-            <strong>尚未載入影片</strong>
-            <span>選擇本機 webm 或 mp4 後，即可在此回播。</span>
+        <div class="replay-video-stage" aria-label="本機影片回播區">
+          <div class="video-card replay-video-card" id="replayVideoCard">
+            <video id="replayVideo" controls playsinline preload="metadata"></video>
+            <div class="replay-empty-state" id="replayEmptyState">
+              <strong>尚未載入影片</strong>
+              <span>選擇本機 webm 或 mp4 後，即可在此回播。</span>
+            </div>
           </div>
         </div>
 
@@ -115,7 +117,7 @@
         <section class="panel replay-info-panel landmark-validation-panel" aria-label="Landmarks CSV 驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.1 資料讀取驗證</p>
+              <p class="eyebrow">V2.3.1.1 資料讀取驗證</p>
               <h2>Landmarks CSV 驗證</h2>
             </div>
             <div class="validation-badge" id="landmarkValidationBadge" data-state="idle">尚未載入</div>
@@ -197,6 +199,6 @@
     </section>
   </main>
 
-  <script src="replay.js?v=20260828-v231" defer></script>
+  <script src="replay.js?v=20260828-v2311" defer></script>
 </body>
 </html>

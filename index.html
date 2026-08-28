@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CPR Research System V2.3.1</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v231" />
+  <title>CPR Research System V2.3.1.1</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v2311" />
 </head>
 <body>
   <main class="home-shell">
     <section class="hero-card">
-      <p class="eyebrow">CPR Research System V2.3.1</p>
+      <p class="eyebrow">CPR Research System V2.3.1.1</p>
       <h1>CPR 姿勢即時偵測與研究資料紀錄系統</h1>
       <p class="hero-text">
         本系統採用 640×480 / 30fps 與 MediaPipe Pose Landmarker Full 作為主要分析設定。
-        模式一維持 V2.2.7 鎖定基準；模式二目前可純本機回播影片，並讀取與驗證 landmarks.csv 資料結構。
+        模式一維持 V2.2.7 鎖定基準；模式二目前可純本機回播影片、讀取與驗證 landmarks.csv，並採用桌機／平板／手機自適應回播版面。
       </p>
     </section>
 
@@ -45,7 +45,7 @@
       <ul>
         <li>模式一維持 V2.2.7 原始攝影與錄影流程，不修改 live.html / live.js。</li>
         <li>模式二影片與 CSV 都只在瀏覽器本機讀取，不需上傳。</li>
-        <li>V2.3.1 只驗證 landmarks.csv 是否能被正確解析；尚不進行骨架繪製或影片同步。</li>
+        <li>V2.3.1.1 保留 CSV 驗證邏輯，並固定回播播放器的響應式版面；尚不進行骨架繪製或影片同步。</li>
         <li>回播同步下一階段將以 elapsed_sec 作為主時間軸。</li>
         <li>原始影片不疊骨架，骨架資料另外存成 CSV，方便回播與研究分析。</li>
       </ul>
