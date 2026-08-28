@@ -937,3 +937,16 @@ input:focus, select:focus {
     font-size: 11px;
   }
 }
+
+
+/* V2.3.4: display-only comparison controls.
+   The raw video itself may be mirrored, while Canvas x coordinates are mirrored in JS
+   so point labels remain readable instead of being CSS-flipped backwards. */
+.replay-video-card video.is-mirrored {
+  transform: scaleX(-1);
+  transform-origin: center center;
+}
+
+.replay-skeleton-input-section .field {
+  margin-top: 2px;
+}

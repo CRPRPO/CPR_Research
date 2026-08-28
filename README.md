@@ -1,104 +1,74 @@
-# CPR Research System V2.3.3
+# CPR Research System V2.3.4
 
 ## 版本目的
 
-V2.3.3 以已通過測試的 V2.3.2 為基礎，保留本機影片回播、landmarks.csv 結構驗證，以及 `video.currentTime ↔ elapsed_sec ↔ frame_index` 最近時間配對。
+V2.3.4 以已通過實際測試的 V2.3.3 為基礎，保留：
 
-本版只新增一件核心能力：**把 V2.2.7 已保存於 landmarks.csv 的 Raw normalized landmark x/y 重新畫回 raw.webm 上。**
+- 本機影片回播。
+- landmarks.csv 結構驗證。
+- `video.currentTime ↔ elapsed_sec ↔ frame_index` 同步。
+- Raw CSV landmark Canvas overlay。
 
-這不是重新辨識影片。V2.3.3：
+本版只新增兩件顯示層能力：
 
-- 不重新執行 MediaPipe。
-- 不產生新的 landmark。
-- 不使用 EMA 平滑。
-- 不讀 posture_metrics.csv。
-- 不判定姿勢正確或錯誤。
-- 不修改模式一。
-- 不上傳影片或 CSV。
+1. **Live EMA 模擬**：使用 V2.2.7 即時顯示骨架相同係數 `DISPLAY_SMOOTH_ALPHA = 0.34`。
+2. **手動鏡像比較**：可將 raw.webm 與骨架一起左右鏡像，以便和當時螢幕錄影比對。
 
-## Raw 骨架資料來源
+本版仍不重新執行 MediaPipe、不讀 posture_metrics.csv、不判定姿勢正確/錯誤，也不修改模式一。
 
-每次影片播放或拖曳時，沿用 V2.3.2 的同步邏輯：
+## EMA 重建公式
 
-1. 取得 `video.currentTime`。
-2. 在 CSV 的 `elapsed_sec` 中找時間最接近的一筆。
-3. 取得該筆 `frame_index`。
-4. 讀取該列 `nose / neck_mid / shoulder / elbow / wrist / hip` 的 normalized `x/y`。
-5. 依目前播放器實際顯示尺寸換算成 Canvas 座標：
+V2.2.7 即時顯示的 x/y 使用：
 
-   `display_x = landmark_x × canvas_display_width`
+`EMA_t = 0.34 × Raw_t + 0.66 × EMA_(t-1)`
 
-   `display_y = landmark_y × canvas_display_height`
+V2.3.4 會在 landmarks.csv 載入後，依 CSV frame 順序預先計算每一筆的 EMA x/y。這樣播放、暫停、拖曳到任意時間時，都可以直接取得該 frame 對應的 EMA，而不會因瀏覽器重複 render 同一 frame 而重複平滑。
 
-6. 將 Raw 骨架畫在影片上方的透明 Canvas。
+### 重要限制
 
-Canvas 會跟播放器共用相同顯示矩形，視窗縮放或手機/平板改變尺寸後會重新計算，以避免影片與骨架因 responsive layout 產生位移。
+V2.2.7 的即時 EMA 在攝影機 preview 啟動後就開始累積；但 landmarks.csv 只保存正式錄影期間。因此 V2.3.4 無法知道正式錄影開始前的 EMA 狀態。
 
-## 顏色
+本版採用「第一筆錄影 CSV Raw 值作為 EMA 初始值」。因此：
 
-- 左側肩－肘－腕：青色。
-- 右側肩－肘－腕：黃色。
-- 髖部與肩髖連線：綠色。
-- 肩線：白色。
-- nose：粉紅色。
-- neck_mid：白色。
+- 錄影最前段約數百毫秒可能和當時螢幕顯示有些微差異。
+- 經過數個至十數個 frame 後，錄影前初始狀態的影響會快速衰減。
 
-畫面左上角會顯示 `RAW CSV · Fxxx · n/10`，方便確認目前使用哪個 CSV frame，以及 10 個保存點中有多少點具有效 x/y。
+這是資料本身未保存 pre-record smoothing state 的限制，不是重新辨識誤差。
 
-## 顯示開關
+## 鏡像比較
 
-左側新增「顯示 CSV Raw Landmarks」。
+V2.2.7 metadata 沒有保存當時 `mirrorDisplay` 設定，所以 V2.3.4 不會猜測。研究者可手動選擇：
 
-- 開啟：顯示 Raw CSV 骨架。
-- 關閉：只看原始 raw.webm。
+- 原始方向。
+- 左右鏡像（模擬現場顯示）。
 
-這個開關是為了方便肉眼快速比較人體真正位置與 CSV 保存的 landmark 位置。
+鏡像時 raw.webm 與骨架會一起翻轉；Canvas 標籤文字仍維持正常方向。
 
 ## 鎖定範圍
 
-以下檔案仍不修改其 V2.2.7 模式一內容：
+以下 V2.2.7 模式一檔案仍保持不變：
 
 - `live.html`
 - `live.js`
 - `analyze.html`
 
-V2.3.3 的變更集中於：
+V2.3.4 的變更集中於：
 
 - `index.html`：版本文字。
-- `replay.html`：Raw 骨架 Canvas、顯示開關與版本說明。
-- `replay.js`：讀取已同步的 CSV row 並畫 Raw skeleton。
-- `style.css`：Canvas overlay、狀態 badge 與開關樣式。
+- `replay.html`：EMA / mirror 顯示選項與說明。
+- `replay.js`：預計算 EMA 及鏡像顯示。
+- `style.css`：影片鏡像顯示樣式。
 - `README.md`：本版本說明。
 
-## V2.3.3 測試清單
+## V2.3.4 測試清單
 
-使用同一組：
+使用同一組 `*_raw.webm` + `*_landmarks.csv`：
 
-- `*_raw.webm`
-- `*_landmarks.csv`
+1. V2.3.3 已通過的影片播放、CSV PASS、時間同步、Raw overlay 必須維持正常。
+2. 切換「Raw CSV」與「Live EMA 模擬」時，骨架都應跟同一 frame，EMA 版本應較平滑且在快速移動時可能有輕微滯後。
+3. 暫停並拖曳到任意時間後，Raw / EMA 都應立即對到該 frame，不因 seek 而重新累積造成位置漂移。
+4. 切換「左右鏡像」後，影片與骨架必須一起左右翻轉且仍貼合人體；文字標籤不可反字。
+5. 切回「原始方向」後應回到原位置。
+6. 不同組別影片 / CSV 的防呆仍應阻止繪製。
 
-確認：
-
-1. V2.3.2 的影片回播仍正常。
-2. CSV 仍為 PASS。
-3. 時間同步仍為 PASS。
-4. 載入影片與 CSV 後，「顯示 CSV Raw Landmarks」可以使用。
-5. 影片上出現骨架，播放時會跟著動作更新。
-6. 拖曳影片後，骨架會跳到對應 frame。
-7. 關閉 Raw 骨架後，只剩原始影片；重新開啟可恢復。
-8. 主要肉眼檢查肩、肘、腕是否落在對應人體位置。
-9. 將瀏覽器縮窄或使用手機/平板時，影片與骨架仍保持重疊，不應因 responsive layout 分離。
-
-## 本版判定重點
-
-V2.3.3 的 PASS 不代表「MediaPipe 姿勢辨識已正確」。
-
-本版只回答：
-
-> V2.2.7 當時保存於 landmarks.csv 的 Raw x/y，經過 V2.3.2 已驗證的時間對應後，能否在回播影片中重建到正確的影像位置？
-
-如果骨架與人體位置不吻合，優先檢查 CSV 座標、Canvas 座標轉換、影片顯示幾何與時間配對；不要先修改姿勢門檻。
-
-## 下一步（尚未包含）
-
-預定 V2.3.4 再處理 Live 顯示重建議題，例如 V2.2.7 的 EMA display smoothing，以及必要時的鏡像顯示比較。
+V2.3.4 通過後，再進下一階段加入姿勢 metrics / debug 對照，而不是在本版改判斷門檻。

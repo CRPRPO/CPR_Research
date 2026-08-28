@@ -1,10 +1,10 @@
 "use strict";
 
-// CPR Research System V2.3.3
-// Mode 2 Raw skeleton reconstruction.
-// Keeps V2.3.2 playback, CSV validation and nearest-frame synchronization unchanged,
-// then draws the saved normalized landmark x/y values over the raw local video.
-// No upload, no MediaPipe re-analysis and no EMA smoothing.
+// CPR Research System V2.3.4
+// Mode 2 Raw / Live-style EMA display reconstruction.
+// Keeps V2.3.3 playback, CSV validation, synchronization and Raw overlay unchanged,
+// then adds the same display EMA coefficient used by V2.2.7 plus a manual mirror comparison.
+// No upload and no MediaPipe re-analysis.
 
 const els = {
   videoFileInput: document.getElementById("videoFileInput"),
@@ -15,6 +15,8 @@ const els = {
   replaySkeletonCanvas: document.getElementById("replaySkeletonCanvas"),
   replaySkeletonBadge: document.getElementById("replaySkeletonBadge"),
   showSkeletonToggle: document.getElementById("showSkeletonToggle"),
+  skeletonDisplayMode: document.getElementById("skeletonDisplayMode"),
+  replayMirrorSelect: document.getElementById("replayMirrorSelect"),
   replayEmptyState: document.getElementById("replayEmptyState"),
   replayMessage: document.getElementById("replayMessage"),
   fileNameValue: document.getElementById("fileNameValue"),
@@ -83,6 +85,7 @@ let skeletonAnimationFrameId = null;
 let skeletonVideoFrameCallbackId = null;
 
 const skeletonCtx = els.replaySkeletonCanvas.getContext("2d");
+const DISPLAY_SMOOTH_ALPHA = 0.34;
 const RAW_POINT_NAMES = [
   "nose", "neck_mid",
   "left_shoulder", "right_shoulder",
@@ -303,6 +306,8 @@ function resizeSkeletonCanvas() {
 function updateSkeletonAvailability() {
   const ready = Boolean(activeFile && activeLandmarksData?.allPass && els.replayVideo.videoWidth > 0);
   els.showSkeletonToggle.disabled = !ready;
+  els.skeletonDisplayMode.disabled = !ready;
+  els.replayMirrorSelect.disabled = !ready;
 
   if (!ready) {
     stopSkeletonRenderLoop();
@@ -316,11 +321,47 @@ function updateSkeletonAvailability() {
 
   if (!els.showSkeletonToggle.checked) {
     clearSkeletonCanvas();
-    setSkeletonBadge("off", "Raw 骨架已關閉");
+    setSkeletonBadge("off", "骨架疊加已關閉");
     return false;
   }
 
   return true;
+}
+
+function getRowNumberFromIndex(row, headerIndex, columnName) {
+  const index = headerIndex?.get(columnName);
+  if (!Number.isInteger(index) || index < 0) return NaN;
+  const value = Number(row[index]);
+  return Number.isFinite(value) ? value : NaN;
+}
+
+function buildEmaPointMaps(dataRows, headerIndex) {
+  const output = [];
+  let previous = null;
+
+  for (const row of dataRows) {
+    const current = {};
+    for (const name of RAW_POINT_NAMES) {
+      const x = getRowNumberFromIndex(row, headerIndex, `${name}_x`);
+      const y = getRowNumberFromIndex(row, headerIndex, `${name}_y`);
+      const z = getRowNumberFromIndex(row, headerIndex, `${name}_z`);
+      const visibility = getRowNumberFromIndex(row, headerIndex, `${name}_visibility`);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+      const prev = previous?.[name];
+      const smoothedX = prev && Number.isFinite(prev.x)
+        ? (DISPLAY_SMOOTH_ALPHA * x) + ((1 - DISPLAY_SMOOTH_ALPHA) * prev.x)
+        : x;
+      const smoothedY = prev && Number.isFinite(prev.y)
+        ? (DISPLAY_SMOOTH_ALPHA * y) + ((1 - DISPLAY_SMOOTH_ALPHA) * prev.y)
+        : y;
+
+      current[name] = { name, x: smoothedX, y: smoothedY, z, visibility };
+    }
+    output.push(current);
+    previous = current;
+  }
+  return output;
 }
 
 function getRowNumber(row, columnName) {
@@ -351,6 +392,34 @@ function buildRawPointMap(row, logicalWidth, logicalHeight) {
   return map;
 }
 
+function getDisplayPointMap(row, nearestIndex, logicalWidth, logicalHeight) {
+  const mode = els.skeletonDisplayMode?.value || "raw";
+  if (mode === "ema") {
+    const normalizedMap = activeLandmarksData?.emaPointMaps?.[nearestIndex] || {};
+    const map = {};
+    for (const [name, point] of Object.entries(normalizedMap)) {
+      map[name] = {
+        ...point,
+        px: point.x * logicalWidth,
+        py: point.y * logicalHeight,
+      };
+    }
+    return map;
+  }
+  return buildRawPointMap(row, logicalWidth, logicalHeight);
+}
+
+function replayDisplayX(px, logicalWidth) {
+  return els.replayMirrorSelect?.value === "on" && Number.isFinite(px)
+    ? logicalWidth - px
+    : px;
+}
+
+function applyReplayMirror() {
+  const mirrored = els.replayMirrorSelect?.value === "on";
+  els.replayVideo.classList.toggle("is-mirrored", mirrored);
+}
+
 function drawRawLine(a, b, color, width) {
   if (!a || !b) return;
   skeletonCtx.save();
@@ -358,8 +427,9 @@ function drawRawLine(a, b, color, width) {
   skeletonCtx.lineWidth = width;
   skeletonCtx.lineCap = "round";
   skeletonCtx.beginPath();
-  skeletonCtx.moveTo(a.px, a.py);
-  skeletonCtx.lineTo(b.px, b.py);
+  const logicalWidth = els.replaySkeletonCanvas.getBoundingClientRect().width;
+  skeletonCtx.moveTo(replayDisplayX(a.px, logicalWidth), a.py);
+  skeletonCtx.lineTo(replayDisplayX(b.px, logicalWidth), b.py);
   skeletonCtx.stroke();
   skeletonCtx.restore();
 }
@@ -370,8 +440,10 @@ function drawRawPoint(point, color, radius, label) {
   skeletonCtx.fillStyle = color;
   skeletonCtx.strokeStyle = "rgba(0,0,0,0.72)";
   skeletonCtx.lineWidth = 1.5;
+  const logicalWidth = els.replaySkeletonCanvas.getBoundingClientRect().width;
+  const displayX = replayDisplayX(point.px, logicalWidth);
   skeletonCtx.beginPath();
-  skeletonCtx.arc(point.px, point.py, radius, 0, Math.PI * 2);
+  skeletonCtx.arc(displayX, point.py, radius, 0, Math.PI * 2);
   skeletonCtx.fill();
   skeletonCtx.stroke();
 
@@ -379,7 +451,7 @@ function drawRawPoint(point, color, radius, label) {
     skeletonCtx.font = "700 11px Arial, sans-serif";
     const textWidth = skeletonCtx.measureText(label).width;
     const boxWidth = Math.max(24, textWidth + 10);
-    const boxX = point.px + 7;
+    const boxX = displayX + 7;
     const boxY = point.py - 17;
     skeletonCtx.fillStyle = "rgba(2,6,23,0.76)";
     skeletonCtx.fillRect(boxX, boxY, boxWidth, 16);
@@ -408,7 +480,7 @@ function drawRawSkeletonFrame(nearestIndex) {
     return;
   }
 
-  const pointMap = buildRawPointMap(row, logicalWidth, logicalHeight);
+  const pointMap = getDisplayPointMap(row, nearestIndex, logicalWidth, logicalHeight);
   const validPointCount = RAW_POINT_NAMES.filter((name) => pointMap[name]).length;
 
   drawRawLine(pointMap.left_shoulder, pointMap.right_shoulder, "rgba(255,255,255,0.68)", 3);
@@ -433,7 +505,9 @@ function drawRawSkeletonFrame(nearestIndex) {
   drawRawPoint(pointMap.neck_mid, "#ffffff", 5, "neck");
 
   const frame = activeLandmarksData.frameValues[nearestIndex];
-  setSkeletonBadge("pass", `RAW CSV · F${Number.isFinite(frame) ? frame : nearestIndex} · ${validPointCount}/${RAW_POINT_NAMES.length}`);
+  const modeLabel = els.skeletonDisplayMode?.value === "ema" ? "EMA α=0.34" : "RAW CSV";
+  const mirrorLabel = els.replayMirrorSelect?.value === "on" ? " · MIRROR" : "";
+  setSkeletonBadge("pass", `${modeLabel}${mirrorLabel} · F${Number.isFinite(frame) ? frame : nearestIndex} · ${validPointCount}/${RAW_POINT_NAMES.length}`);
 }
 
 function renderRawSkeletonForCurrentTime() {
@@ -986,16 +1060,20 @@ function validateLandmarksCsv(file, parsed) {
   els.csvVideoTimeStartValue.textContent = videoTimeValues.length > 0 ? formatSeconds(videoTimeValues[0], 4) : "—";
   els.csvVideoTimeEndValue.textContent = videoTimeValues.length > 0 ? formatSeconds(videoTimeValues[videoTimeValues.length - 1], 4) : "—";
 
+  const headerIndex = new Map(headers.map((name, index) => [name, index]));
+  const emaPointMaps = allPass ? buildEmaPointMaps(dataRows, headerIndex) : [];
+
   return {
     allPass,
     headers,
-    headerIndex: new Map(headers.map((name, index) => [name, index])),
+    headerIndex,
     dataRows,
     frameValues,
     elapsedValues,
     videoTimeValues,
     medianIntervalSec,
     syncToleranceSec,
+    emaPointMaps,
   };
 }
 
@@ -1074,8 +1152,19 @@ els.showSkeletonToggle.addEventListener("change", () => {
   } else {
     stopSkeletonRenderLoop();
     clearSkeletonCanvas();
-    setSkeletonBadge("off", "Raw 骨架已關閉");
+    setSkeletonBadge("off", "骨架疊加已關閉");
   }
+});
+
+els.skeletonDisplayMode.addEventListener("change", () => {
+  renderRawSkeletonForCurrentTime();
+  if (!els.replayVideo.paused) startSkeletonRenderLoop();
+});
+
+els.replayMirrorSelect.addEventListener("change", () => {
+  applyReplayMirror();
+  renderRawSkeletonForCurrentTime();
+  if (!els.replayVideo.paused) startSkeletonRenderLoop();
 });
 
 els.replayVideo.addEventListener("loadedmetadata", () => {
@@ -1098,6 +1187,7 @@ els.replayVideo.addEventListener("loadedmetadata", () => {
 
   updateSyncPanel();
   updateSkeletonAvailability();
+  applyReplayMirror();
   resizeSkeletonCanvas();
   renderRawSkeletonForCurrentTime();
   setMessage(`影片已載入：${activeFile.name}。可使用影片下方原生控制列播放、暫停或拖曳時間。`, "ok");

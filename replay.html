@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.3</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v233" />
+  <title>本機回播模式｜CPR Research System V2.3.4</title>
+  <link rel="stylesheet" href="style.css?v=20260829-v234" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.3</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.4</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.3｜Raw Skeleton Local-only</div>
+      <div class="version-pill">V2.3.4｜Raw / EMA Replay Local-only</div>
     </header>
 
     <section class="replay-layout">
@@ -64,12 +64,29 @@
         </section>
 
         <section class="replay-input-section replay-skeleton-input-section">
-          <h2>3. 顯示 Raw 骨架</h2>
+          <h2>3. 骨架顯示比較</h2>
           <label class="replay-toggle-row" for="showSkeletonToggle">
             <input id="showSkeletonToggle" type="checkbox" checked disabled />
-            <span>顯示 CSV Raw Landmarks</span>
+            <span>顯示骨架疊加</span>
           </label>
-          <p class="replay-helper-text">使用 V2.3.2 已驗證的時間對應，直接將 landmarks.csv 內保存的 normalized x/y 畫回影片；本版不使用 EMA 平滑，也不重新執行 MediaPipe。</p>
+
+          <label class="field">
+            <span>骨架顯示模式</span>
+            <select id="skeletonDisplayMode" disabled>
+              <option value="raw">Raw CSV（原始座標）</option>
+              <option value="ema">Live EMA 模擬（α = 0.34）</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>回播方向</span>
+            <select id="replayMirrorSelect" disabled>
+              <option value="off">原始方向</option>
+              <option value="on">左右鏡像（模擬現場顯示）</option>
+            </select>
+          </label>
+
+          <p class="replay-helper-text">Raw 模式直接顯示 CSV 座標；Live EMA 模式以 V2.2.7 相同的 α=0.34 公式，從本次錄影第一筆 CSV 起重建顯示平滑。由於 CSV 沒有保存正式錄影開始前的 EMA 狀態，也沒有保存當時鏡像設定，因此錄影最前段約數百毫秒屬近似重建，鏡像需手動切換比對。</p>
         </section>
 
         <div class="info-box local-only-box">
@@ -128,7 +145,7 @@
         <section class="panel replay-info-panel sync-validation-panel" aria-label="影片與 Landmarks 時間同步驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.3 時間同步＋Raw 骨架</p>
+              <p class="eyebrow">V2.3.4 Raw / EMA 顯示重建</p>
               <h2>影片 ↔ Landmarks 時間對應</h2>
             </div>
             <div class="validation-badge" id="syncValidationBadge" data-state="idle">等待影片與 CSV</div>
@@ -186,21 +203,21 @@
 
           <div class="sync-guidance-box">
             <strong>測試方式</strong>
-            <span>載入同一組 raw.webm 與 landmarks.csv 後，播放或拖曳影片；frame_index 應隨 currentTime 改變，Raw 骨架也應貼合肩、肘、腕與髖部位置。可切換左側「顯示 CSV Raw Landmarks」比較原始影片。</span>
+            <span>載入同一組 raw.webm 與 landmarks.csv 後，可在 Raw CSV 與 Live EMA 模擬間切換；兩者都應跟上同一 frame。再切換「原始方向 / 左右鏡像」，影片與骨架必須一起翻轉且仍保持貼合。</span>
           </div>
         </section>
 
         <section class="panel replay-info-panel landmark-validation-panel" aria-label="Landmarks CSV 驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.3 資料讀取驗證</p>
+              <p class="eyebrow">V2.3.4 資料讀取驗證</p>
               <h2>Landmarks CSV 驗證</h2>
             </div>
             <div class="validation-badge" id="landmarkValidationBadge" data-state="idle">尚未載入</div>
           </div>
 
           <p class="validation-explain">
-            CSV 結構驗證仍沿用 V2.3.1，時間同步沿用 V2.3.2；V2.3.3 僅新增 Raw landmark overlay，不改既有 CSV 驗證與同步演算法。
+            CSV 結構驗證仍沿用 V2.3.1、時間同步沿用 V2.3.2、Raw overlay 沿用 V2.3.3；V2.3.4 只新增 Live EMA 顯示重建與手動鏡像比較，不改既有 CSV 驗證與同步演算法。
           </p>
 
           <div class="landmark-info-grid">
@@ -275,6 +292,6 @@
     </section>
   </main>
 
-  <script src="replay.js?v=20260828-v233" defer></script>
+  <script src="replay.js?v=20260829-v234" defer></script>
 </body>
 </html>
