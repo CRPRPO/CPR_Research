@@ -950,3 +950,111 @@ input:focus, select:focus {
 .replay-skeleton-input-section .field {
   margin-top: 2px;
 }
+
+/* V2.3.4.1: playback + landmark latency diagnostic.
+   Diagnostic controls are display-only and do not alter stored CSV/video data. */
+.replay-latency-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.latency-control-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.latency-control-label {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+.latency-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.latency-button-row button {
+  min-width: 84px;
+  min-height: 42px;
+}
+
+.latency-offset-row button {
+  min-width: 96px;
+}
+
+.latency-step-row button,
+.latency-ab-row button {
+  flex: 1 1 150px;
+}
+
+.latency-rate-btn[data-active="true"],
+.latency-offset-btn[data-active="true"],
+.latency-ab-row button[data-active="true"] {
+  border-color: rgba(56, 189, 248, 0.95);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.18) inset;
+  background: rgba(14, 116, 144, 0.32);
+}
+
+.latency-mini-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.latency-mini-note code {
+  color: #e2e8f0;
+}
+
+.latency-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.latency-info-grid .metric-card strong {
+  overflow-wrap: anywhere;
+}
+
+.latency-guidance-box {
+  margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .latency-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .latency-button-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .latency-offset-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .latency-offset-row button[data-latency-offset="3"] {
+    grid-column: 1 / -1;
+  }
+
+  .latency-button-row button,
+  .latency-offset-row button,
+  .latency-step-row button,
+  .latency-ab-row button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .latency-info-grid {
+    grid-template-columns: 1fr;
+  }
+}

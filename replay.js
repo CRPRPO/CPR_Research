@@ -1,10 +1,10 @@
 "use strict";
 
-// CPR Research System V2.3.4
-// Mode 2 Raw / Live-style EMA display reconstruction.
-// Keeps V2.3.3 playback, CSV validation, synchronization and Raw overlay unchanged,
-// then adds the same display EMA coefficient used by V2.2.7 plus a manual mirror comparison.
-// No upload and no MediaPipe re-analysis.
+// CPR Research System V2.3.4.1
+// Mode 2 playback + landmark latency diagnostic.
+// Keeps V2.3.4 Raw/EMA/mirror reconstruction and the V2.3.2 original synchronization unchanged,
+// then adds visible slow-play controls, adjacent-landmark stepping, and temporary frame-offset A/B comparison.
+// Diagnostic offsets are display-only: no CSV/video modification, no upload and no MediaPipe re-analysis.
 
 const els = {
   videoFileInput: document.getElementById("videoFileInput"),
@@ -75,6 +75,20 @@ const els = {
   checkSyncMatchText: document.getElementById("checkSyncMatchText"),
   checkFilePair: document.getElementById("checkFilePair"),
   checkFilePairText: document.getElementById("checkFilePairText"),
+
+  latencyDiagnosticBadge: document.getElementById("latencyDiagnosticBadge"),
+  latencyRateButtons: Array.from(document.querySelectorAll("[data-latency-rate]")),
+  latencyStepBackBtn: document.getElementById("latencyStepBackBtn"),
+  latencyStepForwardBtn: document.getElementById("latencyStepForwardBtn"),
+  latencyOffsetButtons: Array.from(document.querySelectorAll("[data-latency-offset]")),
+  latencyOriginalBtn: document.getElementById("latencyOriginalBtn"),
+  latencyCompensatedBtn: document.getElementById("latencyCompensatedBtn"),
+  latencyBaseFrameValue: document.getElementById("latencyBaseFrameValue"),
+  latencySelectedOffsetValue: document.getElementById("latencySelectedOffsetValue"),
+  latencyDisplayedFrameValue: document.getElementById("latencyDisplayedFrameValue"),
+  latencyDisplayedElapsedValue: document.getElementById("latencyDisplayedElapsedValue"),
+  latencyApproxMsValue: document.getElementById("latencyApproxMsValue"),
+  latencyActualShiftValue: document.getElementById("latencyActualShiftValue"),
 };
 
 let activeObjectUrl = null;
@@ -83,6 +97,8 @@ let activeLandmarksFile = null;
 let activeLandmarksData = null;
 let skeletonAnimationFrameId = null;
 let skeletonVideoFrameCallbackId = null;
+let selectedLatencyFrameOffset = 0;
+let latencyComparisonMode = "original";
 
 const skeletonCtx = els.replaySkeletonCanvas.getContext("2d");
 const DISPLAY_SMOOTH_ALPHA = 0.34;
@@ -146,6 +162,165 @@ function findNearestElapsedIndex(values, target) {
   const right = Math.min(low, lastIndex);
   const left = Math.max(right - 1, 0);
   return Math.abs(values[left] - target) <= Math.abs(values[right] - target) ? left : right;
+}
+
+function formatSignedFrameOffset(offset) {
+  if (!Number.isInteger(offset) || offset === 0) return "0 Frame";
+  return `${offset > 0 ? "+" : ""}${offset} Frame`;
+}
+
+function getEffectiveLatencyFrameOffset() {
+  return latencyComparisonMode === "compensated" ? selectedLatencyFrameOffset : 0;
+}
+
+function setLatencyBadge(state, text) {
+  if (!els.latencyDiagnosticBadge) return;
+  els.latencyDiagnosticBadge.dataset.state = state;
+  els.latencyDiagnosticBadge.textContent = text;
+}
+
+function updateLatencyButtonStates() {
+  const videoReady = Boolean(activeFile && els.replayVideo.videoWidth > 0);
+  const csvReady = Boolean(activeLandmarksData?.allPass);
+  const diagnosticReady = videoReady && csvReady;
+
+  for (const button of els.latencyRateButtons) {
+    button.disabled = !videoReady;
+    const rate = Number(button.dataset.latencyRate);
+    button.dataset.active = videoReady && Math.abs(rate - els.replayVideo.playbackRate) < 0.0001 ? "true" : "false";
+  }
+
+  els.latencyStepBackBtn.disabled = !videoReady;
+  els.latencyStepForwardBtn.disabled = !videoReady;
+
+  for (const button of els.latencyOffsetButtons) {
+    button.disabled = !diagnosticReady;
+    const offset = Number(button.dataset.latencyOffset);
+    button.dataset.active = diagnosticReady && offset === selectedLatencyFrameOffset ? "true" : "false";
+  }
+
+  els.latencyOriginalBtn.disabled = !diagnosticReady;
+  els.latencyCompensatedBtn.disabled = !diagnosticReady;
+  els.latencyOriginalBtn.dataset.active = diagnosticReady && latencyComparisonMode === "original" ? "true" : "false";
+  els.latencyCompensatedBtn.dataset.active = diagnosticReady && latencyComparisonMode === "compensated" ? "true" : "false";
+}
+
+function resetLatencyDiagnostic({ preserveSelection = false } = {}) {
+  if (!preserveSelection) {
+    selectedLatencyFrameOffset = 0;
+    latencyComparisonMode = "original";
+  }
+  els.latencyBaseFrameValue.textContent = "—";
+  els.latencySelectedOffsetValue.textContent = formatSignedFrameOffset(selectedLatencyFrameOffset);
+  els.latencyDisplayedFrameValue.textContent = "—";
+  els.latencyDisplayedElapsedValue.textContent = "—";
+  els.latencyApproxMsValue.textContent = "0 ms";
+  els.latencyActualShiftValue.textContent = "—";
+  setLatencyBadge("idle", "等待影片與 CSV");
+  updateLatencyButtonStates();
+}
+
+function getLatencyDiagnosticState() {
+  if (!activeFile || !(els.replayVideo.videoWidth > 0) || !activeLandmarksData?.allPass) return null;
+  const elapsedValues = activeLandmarksData.elapsedValues;
+  const frameValues = activeLandmarksData.frameValues;
+  const baseIndex = findNearestElapsedIndex(elapsedValues, els.replayVideo.currentTime);
+  if (baseIndex < 0) return null;
+  const effectiveOffset = getEffectiveLatencyFrameOffset();
+  const displayIndex = baseIndex + effectiveOffset;
+  const displayValid = displayIndex >= 0 && displayIndex < elapsedValues.length;
+  const baseElapsed = elapsedValues[baseIndex];
+  const displayElapsed = displayValid ? elapsedValues[displayIndex] : NaN;
+  const actualShiftSec = displayValid ? displayElapsed - baseElapsed : NaN;
+  const medianInterval = activeLandmarksData.medianIntervalSec;
+  const approxShiftMs = Number.isFinite(medianInterval) ? selectedLatencyFrameOffset * medianInterval * 1000 : NaN;
+  return {
+    baseIndex,
+    displayIndex,
+    displayValid,
+    effectiveOffset,
+    baseFrame: frameValues[baseIndex],
+    displayFrame: displayValid ? frameValues[displayIndex] : NaN,
+    baseElapsed,
+    displayElapsed,
+    actualShiftSec,
+    approxShiftMs,
+  };
+}
+
+function updateLatencyDiagnosticPanel() {
+  updateLatencyButtonStates();
+  els.latencySelectedOffsetValue.textContent = formatSignedFrameOffset(selectedLatencyFrameOffset);
+
+  const videoBase = getSessionBase(activeFile?.name, "video");
+  const csvBase = getSessionBase(activeLandmarksFile?.name, "landmarks");
+  if (videoBase && csvBase && videoBase !== csvBase) {
+    els.latencyBaseFrameValue.textContent = "—";
+    els.latencyDisplayedFrameValue.textContent = "—";
+    els.latencyDisplayedElapsedValue.textContent = "—";
+    els.latencyApproxMsValue.textContent = "—";
+    els.latencyActualShiftValue.textContent = "—";
+    setLatencyBadge("fail", "檔案組別不同");
+    return;
+  }
+
+  const state = getLatencyDiagnosticState();
+  if (!state) {
+    els.latencyBaseFrameValue.textContent = "—";
+    els.latencyDisplayedFrameValue.textContent = "—";
+    els.latencyDisplayedElapsedValue.textContent = "—";
+    els.latencyApproxMsValue.textContent = Number.isFinite(activeLandmarksData?.medianIntervalSec)
+      ? `${selectedLatencyFrameOffset >= 0 ? "+" : ""}${(selectedLatencyFrameOffset * activeLandmarksData.medianIntervalSec * 1000).toFixed(1)} ms`
+      : "—";
+    els.latencyActualShiftValue.textContent = "—";
+    setLatencyBadge("idle", "等待影片與 CSV");
+    return;
+  }
+
+  els.latencyBaseFrameValue.textContent = Number.isFinite(state.baseFrame) ? String(state.baseFrame) : String(state.baseIndex);
+  els.latencyApproxMsValue.textContent = Number.isFinite(state.approxShiftMs)
+    ? `${state.approxShiftMs >= 0 ? "+" : ""}${state.approxShiftMs.toFixed(1)} ms`
+    : "—";
+
+  if (!state.displayValid) {
+    els.latencyDisplayedFrameValue.textContent = "超出範圍";
+    els.latencyDisplayedElapsedValue.textContent = "—";
+    els.latencyActualShiftValue.textContent = "—";
+    setLatencyBadge("fail", "補償超出資料範圍");
+    return;
+  }
+
+  els.latencyDisplayedFrameValue.textContent = Number.isFinite(state.displayFrame) ? String(state.displayFrame) : String(state.displayIndex);
+  els.latencyDisplayedElapsedValue.textContent = formatSeconds(state.displayElapsed, 4);
+  els.latencyActualShiftValue.textContent = Number.isFinite(state.actualShiftSec)
+    ? `${state.actualShiftSec >= 0 ? "+" : ""}${(state.actualShiftSec * 1000).toFixed(1)} ms`
+    : "—";
+
+  if (latencyComparisonMode === "original") {
+    setLatencyBadge("pass", "A｜原始同步 0 Frame");
+  } else if (selectedLatencyFrameOffset === 0) {
+    setLatencyBadge("pass", "B｜補償同步 0 Frame");
+  } else {
+    setLatencyBadge("pass", `B｜${formatSignedFrameOffset(selectedLatencyFrameOffset)} 顯示`);
+  }
+}
+
+function stepReplayByAdjacentSample(direction) {
+  if (!activeFile || !(els.replayVideo.videoWidth > 0)) return;
+  els.replayVideo.pause();
+
+  let targetTime = els.replayVideo.currentTime;
+  if (activeLandmarksData?.allPass && activeLandmarksData.elapsedValues.length > 0) {
+    const elapsedValues = activeLandmarksData.elapsedValues;
+    const currentIndex = findNearestElapsedIndex(elapsedValues, els.replayVideo.currentTime);
+    const targetIndex = Math.max(0, Math.min(elapsedValues.length - 1, currentIndex + direction));
+    targetTime = elapsedValues[targetIndex];
+  } else {
+    targetTime += direction * (1 / 30);
+  }
+
+  const maxTime = Number.isFinite(els.replayVideo.duration) ? els.replayVideo.duration : Math.max(0, targetTime);
+  els.replayVideo.currentTime = Math.max(0, Math.min(maxTime, targetTime));
 }
 
 function setMessage(message, type = "normal") {
@@ -308,6 +483,7 @@ function updateSkeletonAvailability() {
   els.showSkeletonToggle.disabled = !ready;
   els.skeletonDisplayMode.disabled = !ready;
   els.replayMirrorSelect.disabled = !ready;
+  updateLatencyButtonStates();
 
   if (!ready) {
     stopSkeletonRenderLoop();
@@ -461,7 +637,7 @@ function drawRawPoint(point, color, radius, label) {
   skeletonCtx.restore();
 }
 
-function drawRawSkeletonFrame(nearestIndex) {
+function drawRawSkeletonFrame(nearestIndex, baseIndex = nearestIndex) {
   if (!updateSkeletonAvailability()) return;
   if (!Number.isInteger(nearestIndex) || nearestIndex < 0) {
     clearSkeletonCanvas();
@@ -505,9 +681,14 @@ function drawRawSkeletonFrame(nearestIndex) {
   drawRawPoint(pointMap.neck_mid, "#ffffff", 5, "neck");
 
   const frame = activeLandmarksData.frameValues[nearestIndex];
+  const baseFrame = activeLandmarksData.frameValues[baseIndex];
+  const effectiveOffset = nearestIndex - baseIndex;
   const modeLabel = els.skeletonDisplayMode?.value === "ema" ? "EMA α=0.34" : "RAW CSV";
   const mirrorLabel = els.replayMirrorSelect?.value === "on" ? " · MIRROR" : "";
-  setSkeletonBadge("pass", `${modeLabel}${mirrorLabel} · F${Number.isFinite(frame) ? frame : nearestIndex} · ${validPointCount}/${RAW_POINT_NAMES.length}`);
+  const latencyLabel = effectiveOffset === 0
+    ? ` · 0F · F${Number.isFinite(frame) ? frame : nearestIndex}`
+    : ` · ${effectiveOffset > 0 ? "+" : ""}${effectiveOffset}F · BASE F${Number.isFinite(baseFrame) ? baseFrame : baseIndex} → SHOW F${Number.isFinite(frame) ? frame : nearestIndex}`;
+  setSkeletonBadge("pass", `${modeLabel}${mirrorLabel}${latencyLabel} · ${validPointCount}/${RAW_POINT_NAMES.length}`);
 }
 
 function renderRawSkeletonForCurrentTime() {
@@ -542,7 +723,15 @@ function renderRawSkeletonForCurrentTime() {
     return;
   }
 
-  drawRawSkeletonFrame(nearestIndex);
+  const diagnostic = getLatencyDiagnosticState();
+  updateLatencyDiagnosticPanel();
+  if (!diagnostic || !diagnostic.displayValid) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "補償超出資料範圍｜未繪製");
+    return;
+  }
+
+  drawRawSkeletonFrame(diagnostic.displayIndex, nearestIndex);
 }
 
 function startSkeletonRenderLoop() {
@@ -742,6 +931,7 @@ function resetPlayer({ preserveMessage = false } = {}) {
   resetVideoInfo();
   updateSyncPanel();
   updateSkeletonAvailability();
+  resetLatencyDiagnostic();
 
   if (!preserveMessage) {
     setMessage("可先選擇影片，也可直接載入 V2.2.7 產生的 landmarks.csv。");
@@ -779,6 +969,7 @@ function loadSelectedVideo(file) {
   setMessage(`已從本機選擇影片：${file.name}。正在讀取影片資訊。`);
   updateSyncPanel();
   updateSkeletonAvailability();
+  updateLatencyDiagnosticPanel();
 }
 
 // CSV parser with support for quoted fields, commas inside quotes, CRLF/LF and UTF-8 BOM.
@@ -937,6 +1128,7 @@ function resetLandmarkValidation({ preserveMessage = false } = {}) {
   setValidationCheck(els.checkRowShape, els.checkRowShapeText, "idle", "等待載入");
   updateSyncPanel();
   updateSkeletonAvailability();
+  resetLatencyDiagnostic();
 
   if (!preserveMessage) {
     setMessage("CSV 已清除。可重新選擇 V2.2.7 產生的 landmarks.csv。");
@@ -1097,8 +1289,11 @@ async function loadLandmarksCsv(file) {
     const parsed = parseCsv(text);
     const validation = validateLandmarksCsv(file, parsed);
     activeLandmarksData = validation;
+    selectedLatencyFrameOffset = 0;
+    latencyComparisonMode = "original";
     updateSyncPanel();
     updateSkeletonAvailability();
+    updateLatencyDiagnosticPanel();
     renderRawSkeletonForCurrentTime();
 
     if (validation.allPass) {
@@ -1133,6 +1328,52 @@ els.playbackRateSelect.addEventListener("change", () => {
   if (Number.isFinite(rate) && rate > 0) {
     els.replayVideo.playbackRate = rate;
   }
+});
+
+for (const button of els.latencyRateButtons) {
+  button.addEventListener("click", () => {
+    const rate = Number(button.dataset.latencyRate);
+    if (!Number.isFinite(rate) || rate <= 0 || button.disabled) return;
+    els.replayVideo.playbackRate = rate;
+    els.playbackRateSelect.value = String(rate);
+    updateLatencyButtonStates();
+  });
+}
+
+els.latencyStepBackBtn.addEventListener("click", () => {
+  stepReplayByAdjacentSample(-1);
+});
+
+els.latencyStepForwardBtn.addEventListener("click", () => {
+  stepReplayByAdjacentSample(1);
+});
+
+for (const button of els.latencyOffsetButtons) {
+  button.addEventListener("click", () => {
+    const offset = Number(button.dataset.latencyOffset);
+    if (!Number.isInteger(offset) || button.disabled) return;
+    selectedLatencyFrameOffset = offset;
+    latencyComparisonMode = offset === 0 ? "original" : "compensated";
+    updateLatencyDiagnosticPanel();
+    renderRawSkeletonForCurrentTime();
+    if (!els.replayVideo.paused) startSkeletonRenderLoop();
+  });
+}
+
+els.latencyOriginalBtn.addEventListener("click", () => {
+  if (els.latencyOriginalBtn.disabled) return;
+  latencyComparisonMode = "original";
+  updateLatencyDiagnosticPanel();
+  renderRawSkeletonForCurrentTime();
+  if (!els.replayVideo.paused) startSkeletonRenderLoop();
+});
+
+els.latencyCompensatedBtn.addEventListener("click", () => {
+  if (els.latencyCompensatedBtn.disabled) return;
+  latencyComparisonMode = "compensated";
+  updateLatencyDiagnosticPanel();
+  renderRawSkeletonForCurrentTime();
+  if (!els.replayVideo.paused) startSkeletonRenderLoop();
 });
 
 els.landmarksFileInput.addEventListener("change", () => {
@@ -1187,6 +1428,7 @@ els.replayVideo.addEventListener("loadedmetadata", () => {
 
   updateSyncPanel();
   updateSkeletonAvailability();
+  updateLatencyDiagnosticPanel();
   applyReplayMirror();
   resizeSkeletonCanvas();
   renderRawSkeletonForCurrentTime();
@@ -1202,11 +1444,13 @@ els.replayVideo.addEventListener("durationchange", () => {
 els.replayVideo.addEventListener("timeupdate", () => {
   els.currentTimeValue.textContent = formatTime(els.replayVideo.currentTime, true);
   updateSyncPanel();
+  updateLatencyDiagnosticPanel();
 });
 
 els.replayVideo.addEventListener("seeked", () => {
   els.currentTimeValue.textContent = formatTime(els.replayVideo.currentTime, true);
   updateSyncPanel();
+  updateLatencyDiagnosticPanel();
 });
 
 els.replayVideo.addEventListener("loadeddata", () => {
@@ -1234,6 +1478,7 @@ els.replayVideo.addEventListener("ratechange", () => {
   if (optionExists) {
     els.playbackRateSelect.value = value;
   }
+  updateLatencyButtonStates();
 });
 
 els.replayVideo.addEventListener("error", () => {
@@ -1257,6 +1502,8 @@ window.addEventListener("beforeunload", () => {
 });
 
 resetSyncPanel();
+resetLatencyDiagnostic();
 resetPlayer();
 resetLandmarkValidation({ preserveMessage: true });
 updateSkeletonAvailability();
+updateLatencyDiagnosticPanel();

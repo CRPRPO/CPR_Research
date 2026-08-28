@@ -1,48 +1,99 @@
-# CPR Research System V2.3.4
+# CPR Research System V2.3.4.1
 
 ## 版本目的
 
-V2.3.4 以已通過實際測試的 V2.3.3 為基礎，保留：
+V2.3.4.1 以已通過實際測試的 V2.3.4 為基礎，完整保留：
 
 - 本機影片回播。
 - landmarks.csv 結構驗證。
-- `video.currentTime ↔ elapsed_sec ↔ frame_index` 同步。
+- `video.currentTime ↔ elapsed_sec ↔ frame_index` 原始同步。
 - Raw CSV landmark Canvas overlay。
+- V2.2.7 顯示係數 `DISPLAY_SMOOTH_ALPHA = 0.34` 的 Live EMA 模擬。
+- 原始方向 / 左右鏡像比較。
 
-本版只新增兩件顯示層能力：
+本版只新增 **Playback & Landmark Latency Diagnostic**，用來量化「Raw landmark 看起來跟在人體動作後面」的現象。
 
-1. **Live EMA 模擬**：使用 V2.2.7 即時顯示骨架相同係數 `DISPLAY_SMOOTH_ALPHA = 0.34`。
-2. **手動鏡像比較**：可將 raw.webm 與骨架一起左右鏡像，以便和當時螢幕錄影比對。
+## 新增診斷功能
 
-本版仍不重新執行 MediaPipe、不讀 posture_metrics.csv、不判定姿勢正確/錯誤，也不修改模式一。
+### 1. 明顯的快速播放速度
 
-## EMA 重建公式
+影片旁新增：
 
-V2.2.7 即時顯示的 x/y 使用：
+- 0.25×
+- 0.5×
+- 1×
 
-`EMA_t = 0.34 × Raw_t + 0.66 × EMA_(t-1)`
+原本左側播放速度下拉選單仍保留，兩者會同步。
 
-V2.3.4 會在 landmarks.csv 載入後，依 CSV frame 順序預先計算每一筆的 EMA x/y。這樣播放、暫停、拖曳到任意時間時，都可以直接取得該 frame 對應的 EMA，而不會因瀏覽器重複 render 同一 frame 而重複平滑。
+### 2. 前一格 / 下一格
 
-### 重要限制
+若已載入通過驗證的 landmarks.csv，按鈕會把影片跳到相鄰的 `elapsed_sec` 資料列；若只有影片，才以約 1/30 秒移動。
 
-V2.2.7 的即時 EMA 在攝影機 preview 啟動後就開始累積；但 landmarks.csv 只保存正式錄影期間。因此 V2.3.4 無法知道正式錄影開始前的 EMA 狀態。
+這是診斷用時間步進，不宣稱等同影片編碼器內部的精確 video frame。
 
-本版採用「第一筆錄影 CSV Raw 值作為 EMA 初始值」。因此：
+### 3. Landmark Frame 顯示補償
 
-- 錄影最前段約數百毫秒可能和當時螢幕顯示有些微差異。
-- 經過數個至十數個 frame 後，錄影前初始狀態的影響會快速衰減。
+可選：
 
-這是資料本身未保存 pre-record smoothing state 的限制，不是重新辨識誤差。
+- -1 Frame
+- 0 Frame
+- +1 Frame
+- +2 Frame
+- +3 Frame
 
-## 鏡像比較
+定義：
 
-V2.2.7 metadata 沒有保存當時 `mirrorDisplay` 設定，所以 V2.3.4 不會猜測。研究者可手動選擇：
+- `0 Frame`：維持 V2.3.2 原始同步，影片 currentTime 對應最近的 elapsed_sec。
+- `+1 Frame`：影片時間不動，但改畫 CSV 的下一筆 landmark。
+- `+2 / +3 Frame`：依序使用再往後 2 / 3 筆 landmark。
+- `-1 Frame`：使用前一筆 landmark，作為反向對照。
 
-- 原始方向。
-- 左右鏡像（模擬現場顯示）。
+補償只影響 **Canvas 顯示哪一筆 landmark**，不會：
 
-鏡像時 raw.webm 與骨架會一起翻轉；Canvas 標籤文字仍維持正常方向。
+- 修改 landmarks.csv。
+- 修改 raw.webm。
+- 改動 V2.3.2 同步驗證結果。
+- 將補償值寫回任何研究資料。
+
+### 4. A / B 快速比較
+
+先選定補償量，例如 `+1 Frame`，再反覆切換：
+
+- 原始同步 A：固定顯示 0 Frame。
+- 補償同步 B：顯示目前選定的補償量。
+
+用來降低「一直重選下拉選單」造成的主觀比較困難。
+
+### 5. 診斷資訊
+
+系統會顯示：
+
+- 原始對應 Frame。
+- 選定補償。
+- 目前真正畫出的 Frame。
+- 目前真正畫出的 elapsed_sec。
+- 依 CSV 中位 frame interval 換算的約略補償毫秒。
+- 原始 Frame 與顯示 Frame 之間實際 elapsed_sec 位移。
+
+因此研究者可以知道程式實際做了什麼，而不是只靠畫面感覺猜測。
+
+## 建議測試方式
+
+使用同一組 `*_raw.webm` + `*_landmarks.csv`：
+
+1. 骨架顯示模式先選 `Raw CSV`。
+2. 播放速度設 0.25×。
+3. 先使用 `0 Frame`，確認先前觀察到的 Raw landmark 延遲。
+4. 依序試 `+1 / +2 / +3 Frame`，觀察哪一個最貼近人體快速上下動作。
+5. 找到候選值後，用「原始同步 A / 補償同步 B」反覆切換。
+6. 換數支影片重複測試，不以單一影片直接決定固定補償值。
+7. `-1 Frame` 可作反向控制；若 -1 更差、+1 更好，可支持延遲方向的判讀。
+
+## 研究解讀限制
+
+本功能目前屬 **Latency Diagnostic**，不是正式校正。即使某支影片在 +1 Frame 最貼合，也不能直接把所有研究影片固定補償 +1 Frame。必須先確認不同影片、不同裝置與不同錄影條件下是否存在一致的系統性延遲。
+
+目前已知 V2.2.7 的 landmarks.csv 是在 MediaPipe 偵測結果產生後記錄 `elapsed_sec`，而單次 `detection_ms` 約可達數十毫秒，因此 Raw landmark 視覺落後可能包含 inference / timestamp latency。後續回頭修改模式一時，應保存更明確的 frame / detection timing；另需在 metadata 新增 `mirrorDisplay`。
 
 ## 鎖定範圍
 
@@ -52,23 +103,12 @@ V2.2.7 metadata 沒有保存當時 `mirrorDisplay` 設定，所以 V2.3.4 不會
 - `live.js`
 - `analyze.html`
 
-V2.3.4 的變更集中於：
+V2.3.4.1 的變更集中於：
 
-- `index.html`：版本文字。
-- `replay.html`：EMA / mirror 顯示選項與說明。
-- `replay.js`：預計算 EMA 及鏡像顯示。
-- `style.css`：影片鏡像顯示樣式。
-- `README.md`：本版本說明。
+- `index.html`：版本與本版功能文字。
+- `replay.html`：延遲診斷控制與資訊區。
+- `replay.js`：顯示層 frame offset、A/B、慢速與相鄰資料列步進。
+- `style.css`：診斷控制的 responsive 樣式。
+- `README.md`：版本說明。
 
-## V2.3.4 測試清單
-
-使用同一組 `*_raw.webm` + `*_landmarks.csv`：
-
-1. V2.3.3 已通過的影片播放、CSV PASS、時間同步、Raw overlay 必須維持正常。
-2. 切換「Raw CSV」與「Live EMA 模擬」時，骨架都應跟同一 frame，EMA 版本應較平滑且在快速移動時可能有輕微滯後。
-3. 暫停並拖曳到任意時間後，Raw / EMA 都應立即對到該 frame，不因 seek 而重新累積造成位置漂移。
-4. 切換「左右鏡像」後，影片與骨架必須一起左右翻轉且仍貼合人體；文字標籤不可反字。
-5. 切回「原始方向」後應回到原位置。
-6. 不同組別影片 / CSV 的防呆仍應阻止繪製。
-
-V2.3.4 通過後，再進下一階段加入姿勢 metrics / debug 對照，而不是在本版改判斷門檻。
+本版仍為 Local-only，不新增 `fetch` / XHR / WebSocket / 外部上傳 API，也不重新執行 MediaPipe。
