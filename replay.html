@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.2</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v232" />
+  <title>本機回播模式｜CPR Research System V2.3.3</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v233" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.2</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.3</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.2｜Time Sync Local-only</div>
+      <div class="version-pill">V2.3.3｜Raw Skeleton Local-only</div>
     </header>
 
     <section class="replay-layout">
@@ -63,6 +63,15 @@
           </div>
         </section>
 
+        <section class="replay-input-section replay-skeleton-input-section">
+          <h2>3. 顯示 Raw 骨架</h2>
+          <label class="replay-toggle-row" for="showSkeletonToggle">
+            <input id="showSkeletonToggle" type="checkbox" checked disabled />
+            <span>顯示 CSV Raw Landmarks</span>
+          </label>
+          <p class="replay-helper-text">使用 V2.3.2 已驗證的時間對應，直接將 landmarks.csv 內保存的 normalized x/y 畫回影片；本版不使用 EMA 平滑，也不重新執行 MediaPipe。</p>
+        </section>
+
         <div class="info-box local-only-box">
           <strong>🔒 本機讀取</strong>
           <p>影片與 CSV 都只會由您的電腦讀入目前瀏覽器分頁，不會上傳至伺服器、雲端或外部 API。</p>
@@ -77,6 +86,8 @@
         <div class="replay-video-stage" aria-label="本機影片回播區">
           <div class="video-card replay-video-card" id="replayVideoCard">
             <video id="replayVideo" controls playsinline preload="metadata"></video>
+            <canvas id="replaySkeletonCanvas" class="replay-skeleton-canvas" aria-hidden="true"></canvas>
+            <div class="replay-skeleton-badge" id="replaySkeletonBadge" data-state="idle" hidden>等待影片與 CSV</div>
             <div class="replay-empty-state" id="replayEmptyState">
               <strong>尚未載入影片</strong>
               <span>選擇本機 webm 或 mp4 後，即可在此回播。</span>
@@ -117,14 +128,14 @@
         <section class="panel replay-info-panel sync-validation-panel" aria-label="影片與 Landmarks 時間同步驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.2 時間同步驗證</p>
+              <p class="eyebrow">V2.3.3 時間同步＋Raw 骨架</p>
               <h2>影片 ↔ Landmarks 時間對應</h2>
             </div>
             <div class="validation-badge" id="syncValidationBadge" data-state="idle">等待影片與 CSV</div>
           </div>
 
           <p class="validation-explain">
-            本版使用影片的 <code>currentTime</code> 對應 CSV 的 <code>elapsed_sec</code>，找出時間最接近的 <code>frame_index</code>。此步驟只驗證時間軸，不畫骨架。
+            本版沿用影片 <code>currentTime</code> ↔ CSV <code>elapsed_sec</code> 的最近 frame 對應，並將該 frame 的 Raw normalized x/y 直接畫回影片。
           </p>
 
           <div class="sync-info-grid">
@@ -175,21 +186,21 @@
 
           <div class="sync-guidance-box">
             <strong>測試方式</strong>
-            <span>載入同一組 raw.webm 與 landmarks.csv 後，播放或拖曳影片；frame_index 應隨 currentTime 改變。可特別檢查 5、10、15、20、25 秒。</span>
+            <span>載入同一組 raw.webm 與 landmarks.csv 後，播放或拖曳影片；frame_index 應隨 currentTime 改變，Raw 骨架也應貼合肩、肘、腕與髖部位置。可切換左側「顯示 CSV Raw Landmarks」比較原始影片。</span>
           </div>
         </section>
 
         <section class="panel replay-info-panel landmark-validation-panel" aria-label="Landmarks CSV 驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.2 資料讀取驗證</p>
+              <p class="eyebrow">V2.3.3 資料讀取驗證</p>
               <h2>Landmarks CSV 驗證</h2>
             </div>
             <div class="validation-badge" id="landmarkValidationBadge" data-state="idle">尚未載入</div>
           </div>
 
           <p class="validation-explain">
-            CSV 結構驗證仍沿用 V2.3.1；V2.3.2 另於上方建立影片 currentTime 與 elapsed_sec 的時間同步驗證。本版仍不畫骨架。
+            CSV 結構驗證仍沿用 V2.3.1，時間同步沿用 V2.3.2；V2.3.3 僅新增 Raw landmark overlay，不改既有 CSV 驗證與同步演算法。
           </p>
 
           <div class="landmark-info-grid">
@@ -264,6 +275,6 @@
     </section>
   </main>
 
-  <script src="replay.js?v=20260828-v232" defer></script>
+  <script src="replay.js?v=20260828-v233" defer></script>
 </body>
 </html>

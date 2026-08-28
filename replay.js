@@ -1,10 +1,10 @@
 "use strict";
 
-// CPR Research System V2.3.2
-// Mode 2 time synchronization validation.
-// Keeps V2.3.1.1 local playback, responsive layout and CSV validation behavior,
-// then adds video.currentTime <-> elapsed_sec <-> frame_index nearest-frame matching.
-// No upload, no MediaPipe and no skeleton drawing.
+// CPR Research System V2.3.3
+// Mode 2 Raw skeleton reconstruction.
+// Keeps V2.3.2 playback, CSV validation and nearest-frame synchronization unchanged,
+// then draws the saved normalized landmark x/y values over the raw local video.
+// No upload, no MediaPipe re-analysis and no EMA smoothing.
 
 const els = {
   videoFileInput: document.getElementById("videoFileInput"),
@@ -12,6 +12,9 @@ const els = {
   playbackRateSelect: document.getElementById("playbackRateSelect"),
   replayVideo: document.getElementById("replayVideo"),
   replayVideoCard: document.getElementById("replayVideoCard"),
+  replaySkeletonCanvas: document.getElementById("replaySkeletonCanvas"),
+  replaySkeletonBadge: document.getElementById("replaySkeletonBadge"),
+  showSkeletonToggle: document.getElementById("showSkeletonToggle"),
   replayEmptyState: document.getElementById("replayEmptyState"),
   replayMessage: document.getElementById("replayMessage"),
   fileNameValue: document.getElementById("fileNameValue"),
@@ -76,6 +79,17 @@ let activeObjectUrl = null;
 let activeFile = null;
 let activeLandmarksFile = null;
 let activeLandmarksData = null;
+let skeletonAnimationFrameId = null;
+let skeletonVideoFrameCallbackId = null;
+
+const skeletonCtx = els.replaySkeletonCanvas.getContext("2d");
+const RAW_POINT_NAMES = [
+  "nose", "neck_mid",
+  "left_shoulder", "right_shoulder",
+  "left_elbow", "right_elbow",
+  "left_wrist", "right_wrist",
+  "left_hip", "right_hip",
+];
 
 // Required for V2.3.1 to recognize a V2.2.7 landmarks CSV as usable for later replay.
 const REQUIRED_TIME_COLUMNS = ["frame_index", "elapsed_sec", "video_time_sec"];
@@ -244,6 +258,246 @@ function updateReplayDisplayGeometry() {
       : "square";
 }
 
+function setSkeletonBadge(state, text) {
+  els.replaySkeletonBadge.hidden = !activeFile;
+  els.replaySkeletonBadge.dataset.state = state;
+  els.replaySkeletonBadge.textContent = text;
+}
+
+function stopSkeletonRenderLoop() {
+  if (skeletonAnimationFrameId !== null) {
+    cancelAnimationFrame(skeletonAnimationFrameId);
+    skeletonAnimationFrameId = null;
+  }
+  if (skeletonVideoFrameCallbackId !== null && typeof els.replayVideo.cancelVideoFrameCallback === "function") {
+    els.replayVideo.cancelVideoFrameCallback(skeletonVideoFrameCallbackId);
+    skeletonVideoFrameCallbackId = null;
+  }
+}
+
+function clearSkeletonCanvas() {
+  const rect = els.replaySkeletonCanvas.getBoundingClientRect();
+  skeletonCtx.setTransform(1, 0, 0, 1, 0, 0);
+  skeletonCtx.clearRect(0, 0, els.replaySkeletonCanvas.width, els.replaySkeletonCanvas.height);
+  return rect;
+}
+
+function resizeSkeletonCanvas() {
+  const rect = els.replaySkeletonCanvas.getBoundingClientRect();
+  const cssWidth = rect.width;
+  const cssHeight = rect.height;
+  if (!(cssWidth > 0 && cssHeight > 0)) return false;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const targetWidth = Math.max(1, Math.round(cssWidth * dpr));
+  const targetHeight = Math.max(1, Math.round(cssHeight * dpr));
+  if (els.replaySkeletonCanvas.width !== targetWidth || els.replaySkeletonCanvas.height !== targetHeight) {
+    els.replaySkeletonCanvas.width = targetWidth;
+    els.replaySkeletonCanvas.height = targetHeight;
+  }
+  skeletonCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  skeletonCtx.clearRect(0, 0, cssWidth, cssHeight);
+  return true;
+}
+
+function updateSkeletonAvailability() {
+  const ready = Boolean(activeFile && activeLandmarksData?.allPass && els.replayVideo.videoWidth > 0);
+  els.showSkeletonToggle.disabled = !ready;
+
+  if (!ready) {
+    stopSkeletonRenderLoop();
+    clearSkeletonCanvas();
+    const missingVideo = !activeFile || !(els.replayVideo.videoWidth > 0);
+    const missingCsv = !activeLandmarksData?.allPass;
+    const missing = missingVideo && missingCsv ? "影片與 CSV" : missingVideo ? "影片" : "通過驗證的 CSV";
+    setSkeletonBadge("idle", `等待${missing}`);
+    return false;
+  }
+
+  if (!els.showSkeletonToggle.checked) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("off", "Raw 骨架已關閉");
+    return false;
+  }
+
+  return true;
+}
+
+function getRowNumber(row, columnName) {
+  const index = activeLandmarksData?.headerIndex?.get(columnName);
+  if (!Number.isInteger(index) || index < 0) return NaN;
+  const value = Number(row[index]);
+  return Number.isFinite(value) ? value : NaN;
+}
+
+function buildRawPointMap(row, logicalWidth, logicalHeight) {
+  const map = {};
+  for (const name of RAW_POINT_NAMES) {
+    const x = getRowNumber(row, `${name}_x`);
+    const y = getRowNumber(row, `${name}_y`);
+    const z = getRowNumber(row, `${name}_z`);
+    const visibility = getRowNumber(row, `${name}_visibility`);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    map[name] = {
+      name,
+      x,
+      y,
+      z,
+      visibility,
+      px: x * logicalWidth,
+      py: y * logicalHeight,
+    };
+  }
+  return map;
+}
+
+function drawRawLine(a, b, color, width) {
+  if (!a || !b) return;
+  skeletonCtx.save();
+  skeletonCtx.strokeStyle = color;
+  skeletonCtx.lineWidth = width;
+  skeletonCtx.lineCap = "round";
+  skeletonCtx.beginPath();
+  skeletonCtx.moveTo(a.px, a.py);
+  skeletonCtx.lineTo(b.px, b.py);
+  skeletonCtx.stroke();
+  skeletonCtx.restore();
+}
+
+function drawRawPoint(point, color, radius, label) {
+  if (!point) return;
+  skeletonCtx.save();
+  skeletonCtx.fillStyle = color;
+  skeletonCtx.strokeStyle = "rgba(0,0,0,0.72)";
+  skeletonCtx.lineWidth = 1.5;
+  skeletonCtx.beginPath();
+  skeletonCtx.arc(point.px, point.py, radius, 0, Math.PI * 2);
+  skeletonCtx.fill();
+  skeletonCtx.stroke();
+
+  if (label) {
+    skeletonCtx.font = "700 11px Arial, sans-serif";
+    const textWidth = skeletonCtx.measureText(label).width;
+    const boxWidth = Math.max(24, textWidth + 10);
+    const boxX = point.px + 7;
+    const boxY = point.py - 17;
+    skeletonCtx.fillStyle = "rgba(2,6,23,0.76)";
+    skeletonCtx.fillRect(boxX, boxY, boxWidth, 16);
+    skeletonCtx.fillStyle = "#ffffff";
+    skeletonCtx.fillText(label, boxX + 5, boxY + 12);
+  }
+  skeletonCtx.restore();
+}
+
+function drawRawSkeletonFrame(nearestIndex) {
+  if (!updateSkeletonAvailability()) return;
+  if (!Number.isInteger(nearestIndex) || nearestIndex < 0) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "找不到對應 Frame");
+    return;
+  }
+
+  if (!resizeSkeletonCanvas()) return;
+  const rect = els.replaySkeletonCanvas.getBoundingClientRect();
+  const logicalWidth = rect.width;
+  const logicalHeight = rect.height;
+  const row = activeLandmarksData.dataRows[nearestIndex];
+  if (!row) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "找不到對應資料列");
+    return;
+  }
+
+  const pointMap = buildRawPointMap(row, logicalWidth, logicalHeight);
+  const validPointCount = RAW_POINT_NAMES.filter((name) => pointMap[name]).length;
+
+  drawRawLine(pointMap.left_shoulder, pointMap.right_shoulder, "rgba(255,255,255,0.68)", 3);
+  drawRawLine(pointMap.left_hip, pointMap.right_hip, "rgba(52,211,153,0.92)", 4);
+  drawRawLine(pointMap.left_shoulder, pointMap.left_hip, "rgba(52,211,153,0.58)", 3);
+  drawRawLine(pointMap.right_shoulder, pointMap.right_hip, "rgba(52,211,153,0.58)", 3);
+
+  drawRawLine(pointMap.left_shoulder, pointMap.left_elbow, "#22d3ee", 5);
+  drawRawLine(pointMap.left_elbow, pointMap.left_wrist, "#22d3ee", 5);
+  drawRawLine(pointMap.right_shoulder, pointMap.right_elbow, "#facc15", 5);
+  drawRawLine(pointMap.right_elbow, pointMap.right_wrist, "#facc15", 5);
+
+  drawRawPoint(pointMap.left_shoulder, "#22d3ee", 6, "LS");
+  drawRawPoint(pointMap.left_elbow, "#22d3ee", 6, "LE");
+  drawRawPoint(pointMap.left_wrist, "#22d3ee", 6, "LW");
+  drawRawPoint(pointMap.right_shoulder, "#facc15", 6, "RS");
+  drawRawPoint(pointMap.right_elbow, "#facc15", 6, "RE");
+  drawRawPoint(pointMap.right_wrist, "#facc15", 6, "RW");
+  drawRawPoint(pointMap.left_hip, "#34d399", 6, "LH");
+  drawRawPoint(pointMap.right_hip, "#34d399", 6, "RH");
+  drawRawPoint(pointMap.nose, "#fb7185", 5, "nose");
+  drawRawPoint(pointMap.neck_mid, "#ffffff", 5, "neck");
+
+  const frame = activeLandmarksData.frameValues[nearestIndex];
+  setSkeletonBadge("pass", `RAW CSV · F${Number.isFinite(frame) ? frame : nearestIndex} · ${validPointCount}/${RAW_POINT_NAMES.length}`);
+}
+
+function renderRawSkeletonForCurrentTime() {
+  if (!updateSkeletonAvailability()) return;
+
+  const videoBase = getSessionBase(activeFile?.name, "video");
+  const csvBase = getSessionBase(activeLandmarksFile?.name, "landmarks");
+  if (videoBase && csvBase && videoBase !== csvBase) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "檔案組別不同｜未繪製");
+    return;
+  }
+
+  const values = activeLandmarksData.elapsedValues;
+  const target = els.replayVideo.currentTime;
+  const nearestIndex = findNearestElapsedIndex(values, target);
+  if (nearestIndex < 0) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "找不到對應 Frame");
+    return;
+  }
+
+  const matchedElapsed = values[nearestIndex];
+  const tolerance = activeLandmarksData.syncToleranceSec;
+  const firstElapsed = values[0];
+  const lastElapsed = values[values.length - 1];
+  const inRange = target >= firstElapsed - tolerance && target <= lastElapsed + tolerance;
+  const delta = Math.abs(matchedElapsed - target);
+  if (!inRange || delta > tolerance) {
+    clearSkeletonCanvas();
+    setSkeletonBadge("fail", "超出同步範圍｜未繪製");
+    return;
+  }
+
+  drawRawSkeletonFrame(nearestIndex);
+}
+
+function startSkeletonRenderLoop() {
+  stopSkeletonRenderLoop();
+  if (!updateSkeletonAvailability() || els.replayVideo.paused || els.replayVideo.ended) return;
+
+  if (typeof els.replayVideo.requestVideoFrameCallback === "function") {
+    const tick = () => {
+      renderRawSkeletonForCurrentTime();
+      if (!els.replayVideo.paused && !els.replayVideo.ended) {
+        skeletonVideoFrameCallbackId = els.replayVideo.requestVideoFrameCallback(tick);
+      } else {
+        skeletonVideoFrameCallbackId = null;
+      }
+    };
+    skeletonVideoFrameCallbackId = els.replayVideo.requestVideoFrameCallback(tick);
+  } else {
+    const tick = () => {
+      renderRawSkeletonForCurrentTime();
+      if (!els.replayVideo.paused && !els.replayVideo.ended) {
+        skeletonAnimationFrameId = requestAnimationFrame(tick);
+      } else {
+        skeletonAnimationFrameId = null;
+      }
+    };
+    skeletonAnimationFrameId = requestAnimationFrame(tick);
+  }
+}
+
 function setSyncOverallState(state, text) {
   els.syncValidationBadge.dataset.state = state;
   els.syncValidationBadge.textContent = text;
@@ -389,6 +643,8 @@ function updateSyncPanel() {
   } else {
     setSyncOverallState("pass", "同步對應｜PASS");
   }
+
+  renderRawSkeletonForCurrentTime();
 }
 
 function resetPlayer({ preserveMessage = false } = {}) {
@@ -407,8 +663,11 @@ function resetPlayer({ preserveMessage = false } = {}) {
   els.replayVideoCard.style.removeProperty("--video-aspect");
   els.replayVideoCard.style.removeProperty("--replay-display-max-width");
   els.replayVideoCard.removeAttribute("data-video-orientation");
+  stopSkeletonRenderLoop();
+  clearSkeletonCanvas();
   resetVideoInfo();
   updateSyncPanel();
+  updateSkeletonAvailability();
 
   if (!preserveMessage) {
     setMessage("可先選擇影片，也可直接載入 V2.2.7 產生的 landmarks.csv。");
@@ -445,6 +704,7 @@ function loadSelectedVideo(file) {
 
   setMessage(`已從本機選擇影片：${file.name}。正在讀取影片資訊。`);
   updateSyncPanel();
+  updateSkeletonAvailability();
 }
 
 // CSV parser with support for quoted fields, commas inside quotes, CRLF/LF and UTF-8 BOM.
@@ -602,6 +862,7 @@ function resetLandmarkValidation({ preserveMessage = false } = {}) {
   setValidationCheck(els.checkFrameIndex, els.checkFrameIndexText, "idle", "等待載入");
   setValidationCheck(els.checkRowShape, els.checkRowShapeText, "idle", "等待載入");
   updateSyncPanel();
+  updateSkeletonAvailability();
 
   if (!preserveMessage) {
     setMessage("CSV 已清除。可重新選擇 V2.2.7 產生的 landmarks.csv。");
@@ -728,6 +989,7 @@ function validateLandmarksCsv(file, parsed) {
   return {
     allPass,
     headers,
+    headerIndex: new Map(headers.map((name, index) => [name, index])),
     dataRows,
     frameValues,
     elapsedValues,
@@ -758,6 +1020,8 @@ async function loadLandmarksCsv(file) {
     const validation = validateLandmarksCsv(file, parsed);
     activeLandmarksData = validation;
     updateSyncPanel();
+    updateSkeletonAvailability();
+    renderRawSkeletonForCurrentTime();
 
     if (validation.allPass) {
       setCsvOverallState("pass", "讀取成功｜PASS");
@@ -769,6 +1033,7 @@ async function loadLandmarksCsv(file) {
   } catch (error) {
     activeLandmarksData = null;
     updateSyncPanel();
+    updateSkeletonAvailability();
     setCsvOverallState("fail", "讀取失敗");
     setValidationCheck(els.checkParse, els.checkParseText, "fail", error?.message || "無法解析 CSV");
     setMessage(`CSV 讀取失敗：${error?.message || "未知錯誤"}`, "error");
@@ -802,6 +1067,17 @@ els.clearLandmarksBtn.addEventListener("click", () => {
   resetLandmarkValidation();
 });
 
+els.showSkeletonToggle.addEventListener("change", () => {
+  if (els.showSkeletonToggle.checked) {
+    renderRawSkeletonForCurrentTime();
+    if (!els.replayVideo.paused) startSkeletonRenderLoop();
+  } else {
+    stopSkeletonRenderLoop();
+    clearSkeletonCanvas();
+    setSkeletonBadge("off", "Raw 骨架已關閉");
+  }
+});
+
 els.replayVideo.addEventListener("loadedmetadata", () => {
   if (!activeFile) return;
 
@@ -821,6 +1097,9 @@ els.replayVideo.addEventListener("loadedmetadata", () => {
     : "瀏覽器未提供";
 
   updateSyncPanel();
+  updateSkeletonAvailability();
+  resizeSkeletonCanvas();
+  renderRawSkeletonForCurrentTime();
   setMessage(`影片已載入：${activeFile.name}。可使用影片下方原生控制列播放、暫停或拖曳時間。`, "ok");
 });
 
@@ -840,9 +1119,24 @@ els.replayVideo.addEventListener("seeked", () => {
   updateSyncPanel();
 });
 
-els.replayVideo.addEventListener("loadeddata", updateSyncPanel);
-els.replayVideo.addEventListener("play", updateSyncPanel);
-els.replayVideo.addEventListener("pause", updateSyncPanel);
+els.replayVideo.addEventListener("loadeddata", () => {
+  updateSyncPanel();
+  renderRawSkeletonForCurrentTime();
+});
+els.replayVideo.addEventListener("play", () => {
+  updateSyncPanel();
+  startSkeletonRenderLoop();
+});
+els.replayVideo.addEventListener("pause", () => {
+  stopSkeletonRenderLoop();
+  updateSyncPanel();
+  renderRawSkeletonForCurrentTime();
+});
+els.replayVideo.addEventListener("ended", () => {
+  stopSkeletonRenderLoop();
+  updateSyncPanel();
+  renderRawSkeletonForCurrentTime();
+});
 
 els.replayVideo.addEventListener("ratechange", () => {
   const value = String(els.replayVideo.playbackRate);
@@ -861,12 +1155,18 @@ els.replayVideo.addEventListener("error", () => {
 
 window.addEventListener("resize", () => {
   if (activeFile) updateReplayDisplayGeometry();
+  requestAnimationFrame(() => {
+    resizeSkeletonCanvas();
+    renderRawSkeletonForCurrentTime();
+  });
 });
 
 window.addEventListener("beforeunload", () => {
+  stopSkeletonRenderLoop();
   releaseObjectUrl();
 });
 
 resetSyncPanel();
 resetPlayer();
 resetLandmarkValidation({ preserveMessage: true });
+updateSkeletonAvailability();

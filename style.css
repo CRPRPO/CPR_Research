@@ -851,3 +851,89 @@ input:focus, select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* V2.3.3: Raw landmarks.csv skeleton overlay.
+   V2.3.2 playback/CSV/time-sync layout remains unchanged. */
+.replay-skeleton-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.replay-skeleton-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  max-width: calc(100% - 20px);
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.76);
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+}
+
+.replay-skeleton-badge[data-state="pass"] {
+  border-color: rgba(34, 197, 94, 0.58);
+  color: #bbf7d0;
+}
+
+.replay-skeleton-badge[data-state="fail"] {
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fecaca;
+}
+
+.replay-skeleton-badge[data-state="off"] {
+  border-color: rgba(148, 163, 184, 0.32);
+  color: #94a3b8;
+}
+
+.replay-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #e2e8f0;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.replay-toggle-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #22c55e;
+}
+
+.replay-toggle-row input:disabled + span {
+  opacity: 0.58;
+}
+
+.replay-helper-text {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 560px) {
+  .replay-skeleton-badge {
+    top: 7px;
+    left: 7px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+}
