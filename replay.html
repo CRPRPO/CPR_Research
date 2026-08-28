@@ -3,53 +3,73 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.0</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v230" />
+  <title>本機回播模式｜CPR Research System V2.3.1</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v231" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.0</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.1</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.0｜Local-only</div>
+      <div class="version-pill">V2.3.1｜Local-only</div>
     </header>
 
     <section class="replay-layout">
       <aside class="panel replay-control-panel">
-        <h2>選擇本機影片</h2>
+        <section class="replay-input-section">
+          <h2>1. 選擇本機影片</h2>
 
-        <label class="field">
-          <span>影片檔案</span>
-          <input id="videoFileInput" type="file" accept="video/webm,video/mp4,.webm,.mp4" />
-        </label>
+          <label class="field">
+            <span>影片檔案</span>
+            <input id="videoFileInput" type="file" accept="video/webm,video/mp4,.webm,.mp4" />
+          </label>
 
-        <div class="control-row replay-button-row">
-          <button id="clearVideoBtn" class="secondary-btn" type="button" disabled>清除影片</button>
-        </div>
+          <div class="control-row replay-button-row">
+            <button id="clearVideoBtn" class="secondary-btn" type="button" disabled>清除影片</button>
+          </div>
 
-        <label class="field">
-          <span>播放速度</span>
-          <select id="playbackRateSelect" disabled>
-            <option value="0.25">0.25×</option>
-            <option value="0.5">0.5×</option>
-            <option value="0.75">0.75×</option>
-            <option value="1" selected>1×</option>
-            <option value="1.25">1.25×</option>
-            <option value="1.5">1.5×</option>
-            <option value="2">2×</option>
-          </select>
-        </label>
+          <label class="field">
+            <span>播放速度</span>
+            <select id="playbackRateSelect" disabled>
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="replay-input-section replay-landmark-input-section">
+          <h2>2. 讀取 Landmarks CSV</h2>
+
+          <label class="field">
+            <span>Landmarks 檔案</span>
+            <input id="landmarksFileInput" type="file" accept="text/csv,.csv" />
+          </label>
+
+          <div class="control-row replay-button-row">
+            <button id="clearLandmarksBtn" class="secondary-btn" type="button" disabled>清除 CSV</button>
+          </div>
+
+          <div class="csv-mini-status" id="csvMiniStatus" data-state="idle">
+            <span class="csv-status-dot" aria-hidden="true"></span>
+            <strong id="csvMiniStatusText">尚未載入 CSV</strong>
+          </div>
+        </section>
 
         <div class="info-box local-only-box">
-          <strong>🔒 本機回播</strong>
-          <p>影片只會由您的電腦讀入目前瀏覽器分頁，不會上傳至伺服器、雲端或外部 API。</p>
+          <strong>🔒 本機讀取</strong>
+          <p>影片與 CSV 都只會由您的電腦讀入目前瀏覽器分頁，不會上傳至伺服器、雲端或外部 API。</p>
         </div>
 
         <div class="status-line" id="replayMessage" role="status" aria-live="polite">
-          請選擇 V2.2.7 錄製的 webm 原始影片。
+          可先選擇影片，也可直接載入 V2.2.7 產生的 landmarks.csv。
         </div>
       </aside>
 
@@ -91,10 +111,92 @@
             </div>
           </div>
         </section>
+
+        <section class="panel replay-info-panel landmark-validation-panel" aria-label="Landmarks CSV 驗證">
+          <div class="validation-heading-row">
+            <div>
+              <p class="eyebrow">V2.3.1 資料讀取驗證</p>
+              <h2>Landmarks CSV 驗證</h2>
+            </div>
+            <div class="validation-badge" id="landmarkValidationBadge" data-state="idle">尚未載入</div>
+          </div>
+
+          <p class="validation-explain">
+            本版只確認 CSV 能否被瀏覽器讀取、解析與辨識必要欄位；尚不會畫骨架，也不會與影片同步。
+          </p>
+
+          <div class="landmark-info-grid">
+            <div class="metric-card muted">
+              <span>CSV 檔名</span>
+              <strong id="landmarkFileNameValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>資料筆數</span>
+              <strong id="landmarkRowCountValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>欄位數</span>
+              <strong id="landmarkColumnCountValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>Frame 範圍</span>
+              <strong id="landmarkFrameRangeValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>elapsed_sec 範圍</span>
+              <strong id="landmarkElapsedRangeValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>資料時間跨度</span>
+              <strong id="landmarkElapsedSpanValue">—</strong>
+            </div>
+          </div>
+
+          <div class="validation-checks" aria-label="CSV 驗證項目">
+            <div class="validation-check" id="checkParse">
+              <span class="validation-icon">—</span>
+              <div><strong>CSV 解析</strong><small id="checkParseText">等待載入</small></div>
+            </div>
+            <div class="validation-check" id="checkTimeColumns">
+              <span class="validation-icon">—</span>
+              <div><strong>時間欄位</strong><small id="checkTimeColumnsText">等待載入</small></div>
+            </div>
+            <div class="validation-check" id="checkCoreLandmarks">
+              <span class="validation-icon">—</span>
+              <div><strong>核心上肢 Landmark 欄位</strong><small id="checkCoreLandmarksText">等待載入</small></div>
+            </div>
+            <div class="validation-check" id="checkElapsedData">
+              <span class="validation-icon">—</span>
+              <div><strong>elapsed_sec 資料</strong><small id="checkElapsedDataText">等待載入</small></div>
+            </div>
+            <div class="validation-check" id="checkFrameIndex">
+              <span class="validation-icon">—</span>
+              <div><strong>frame_index</strong><small id="checkFrameIndexText">等待載入</small></div>
+            </div>
+            <div class="validation-check" id="checkRowShape">
+              <span class="validation-icon">—</span>
+              <div><strong>資料列結構</strong><small id="checkRowShapeText">等待載入</small></div>
+            </div>
+          </div>
+
+          <details class="csv-detail-box">
+            <summary>查看讀取到的研究資料摘要</summary>
+            <dl class="csv-detail-grid">
+              <div><dt>app_version</dt><dd id="csvAppVersionValue">—</dd></div>
+              <div><dt>model_label</dt><dd id="csvModelValue">—</dd></div>
+              <div><dt>actual resolution</dt><dd id="csvResolutionValue">—</dd></div>
+              <div><dt>requested_fps</dt><dd id="csvRequestedFpsValue">—</dd></div>
+              <div><dt>actual_frame_rate</dt><dd id="csvActualFpsValue">—</dd></div>
+              <div><dt>pose_count &gt; 0</dt><dd id="csvPoseCountValue">—</dd></div>
+              <div><dt>video_time_sec 起點</dt><dd id="csvVideoTimeStartValue">—</dd></div>
+              <div><dt>video_time_sec 終點</dt><dd id="csvVideoTimeEndValue">—</dd></div>
+            </dl>
+          </details>
+        </section>
       </section>
     </section>
   </main>
 
-  <script src="replay.js?v=20260828-v230" defer></script>
+  <script src="replay.js?v=20260828-v231" defer></script>
 </body>
 </html>

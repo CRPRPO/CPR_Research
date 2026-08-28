@@ -519,3 +519,218 @@ input:focus, select:focus {
     min-height: 210px;
   }
 }
+
+/* V2.3.1: Mode 2 local landmarks.csv read/validation only. */
+.replay-input-section {
+  display: grid;
+  gap: 12px;
+}
+
+.replay-input-section + .replay-input-section {
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  padding-top: 16px;
+}
+
+.replay-input-section h2 {
+  margin: 0;
+}
+
+.csv-mini-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.62);
+  color: #cbd5e1;
+}
+
+.csv-status-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.csv-mini-status[data-state="loading"] .csv-status-dot { background: #fbbf24; }
+.csv-mini-status[data-state="pass"] .csv-status-dot { background: #22c55e; }
+.csv-mini-status[data-state="fail"] .csv-status-dot { background: #ef4444; }
+.csv-mini-status[data-state="pass"] { border-color: rgba(34, 197, 94, 0.52); color: #bbf7d0; }
+.csv-mini-status[data-state="fail"] { border-color: rgba(239, 68, 68, 0.58); color: #fecaca; }
+
+.validation-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.validation-heading-row h2 {
+  margin: 0;
+}
+
+.validation-heading-row .eyebrow {
+  margin: 0 0 5px;
+}
+
+.validation-badge {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.78);
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.validation-badge[data-state="loading"] { border-color: rgba(245, 158, 11, 0.65); color: #fde68a; }
+.validation-badge[data-state="pass"] { border-color: rgba(34, 197, 94, 0.65); color: #86efac; }
+.validation-badge[data-state="fail"] { border-color: rgba(239, 68, 68, 0.7); color: #fca5a5; }
+
+.validation-explain {
+  margin: 0 0 14px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.landmark-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.landmark-info-grid .metric-card strong {
+  overflow-wrap: anywhere;
+}
+
+.validation-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.validation-check {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-height: 78px;
+  padding: 13px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.validation-check .validation-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.22);
+  color: #cbd5e1;
+  font-weight: 1000;
+}
+
+.validation-check strong,
+.validation-check small {
+  display: block;
+}
+
+.validation-check strong {
+  margin: 1px 0 5px;
+  color: #e2e8f0;
+}
+
+.validation-check small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.validation-check[data-state="pass"] {
+  border-color: rgba(34, 197, 94, 0.5);
+}
+.validation-check[data-state="pass"] .validation-icon {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+.validation-check[data-state="fail"] {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+.validation-check[data-state="fail"] .validation-icon {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+.csv-detail-box {
+  margin-top: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.48);
+  overflow: hidden;
+}
+
+.csv-detail-box summary {
+  cursor: pointer;
+  padding: 13px 15px;
+  color: #cbd5e1;
+  font-weight: 850;
+}
+
+.csv-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.csv-detail-grid > div {
+  padding: 12px 15px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.csv-detail-grid > div:nth-child(odd) {
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.csv-detail-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.csv-detail-grid dd {
+  margin: 0;
+  color: #e2e8f0;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .landmark-info-grid,
+  .validation-checks,
+  .csv-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .csv-detail-grid > div:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .validation-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .validation-badge {
+    align-self: flex-start;
+  }
+}
