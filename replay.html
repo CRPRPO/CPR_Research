@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.1.1</title>
-  <link rel="stylesheet" href="style.css?v=20260828-v2311" />
+  <title>本機回播模式｜CPR Research System V2.3.2</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v232" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.1.1</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.2</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.1.1｜Responsive Local-only</div>
+      <div class="version-pill">V2.3.2｜Time Sync Local-only</div>
     </header>
 
     <section class="replay-layout">
@@ -114,17 +114,82 @@
           </div>
         </section>
 
+        <section class="panel replay-info-panel sync-validation-panel" aria-label="影片與 Landmarks 時間同步驗證">
+          <div class="validation-heading-row">
+            <div>
+              <p class="eyebrow">V2.3.2 時間同步驗證</p>
+              <h2>影片 ↔ Landmarks 時間對應</h2>
+            </div>
+            <div class="validation-badge" id="syncValidationBadge" data-state="idle">等待影片與 CSV</div>
+          </div>
+
+          <p class="validation-explain">
+            本版使用影片的 <code>currentTime</code> 對應 CSV 的 <code>elapsed_sec</code>，找出時間最接近的 <code>frame_index</code>。此步驟只驗證時間軸，不畫骨架。
+          </p>
+
+          <div class="sync-info-grid">
+            <div class="metric-card muted">
+              <span>影片 currentTime</span>
+              <strong id="syncVideoTimeValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>對應 frame_index</span>
+              <strong id="syncFrameValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>對應 elapsed_sec</span>
+              <strong id="syncElapsedValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>時間差 |Δt|</span>
+              <strong id="syncDeltaValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>資料中位間隔</span>
+              <strong id="syncIntervalValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>允許誤差</span>
+              <strong id="syncToleranceValue">—</strong>
+            </div>
+          </div>
+
+          <div class="validation-checks sync-checks" aria-label="時間同步驗證項目">
+            <div class="validation-check" id="checkSyncData">
+              <span class="validation-icon">—</span>
+              <div><strong>必要資料</strong><small id="checkSyncDataText">等待影片與通過驗證的 CSV</small></div>
+            </div>
+            <div class="validation-check" id="checkSyncRange">
+              <span class="validation-icon">—</span>
+              <div><strong>時間範圍</strong><small id="checkSyncRangeText">等待同步</small></div>
+            </div>
+            <div class="validation-check" id="checkSyncMatch">
+              <span class="validation-icon">—</span>
+              <div><strong>最近 Frame 對應</strong><small id="checkSyncMatchText">等待同步</small></div>
+            </div>
+            <div class="validation-check" id="checkFilePair">
+              <span class="validation-icon">—</span>
+              <div><strong>檔案組別</strong><small id="checkFilePairText">等待影片與 CSV</small></div>
+            </div>
+          </div>
+
+          <div class="sync-guidance-box">
+            <strong>測試方式</strong>
+            <span>載入同一組 raw.webm 與 landmarks.csv 後，播放或拖曳影片；frame_index 應隨 currentTime 改變。可特別檢查 5、10、15、20、25 秒。</span>
+          </div>
+        </section>
+
         <section class="panel replay-info-panel landmark-validation-panel" aria-label="Landmarks CSV 驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.1.1 資料讀取驗證</p>
+              <p class="eyebrow">V2.3.2 資料讀取驗證</p>
               <h2>Landmarks CSV 驗證</h2>
             </div>
             <div class="validation-badge" id="landmarkValidationBadge" data-state="idle">尚未載入</div>
           </div>
 
           <p class="validation-explain">
-            本版只確認 CSV 能否被瀏覽器讀取、解析與辨識必要欄位；尚不會畫骨架，也不會與影片同步。
+            CSV 結構驗證仍沿用 V2.3.1；V2.3.2 另於上方建立影片 currentTime 與 elapsed_sec 的時間同步驗證。本版仍不畫骨架。
           </p>
 
           <div class="landmark-info-grid">
@@ -199,6 +264,6 @@
     </section>
   </main>
 
-  <script src="replay.js?v=20260828-v2311" defer></script>
+  <script src="replay.js?v=20260828-v232" defer></script>
 </body>
 </html>

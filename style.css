@@ -802,3 +802,52 @@ input:focus, select:focus {
   }
 }
 
+
+/* V2.3.2: video.currentTime <-> elapsed_sec <-> frame_index synchronization validation.
+   No canvas/skeleton styles are introduced in this version. */
+.sync-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sync-info-grid .metric-card strong {
+  overflow-wrap: anywhere;
+}
+
+.sync-validation-panel code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #bfdbfe;
+  font-size: 0.92em;
+}
+
+.sync-guidance-box {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(59, 130, 246, 0.34);
+  border-radius: 14px;
+  background: rgba(30, 64, 175, 0.10);
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.sync-guidance-box strong {
+  color: #dbeafe;
+}
+
+@media (max-width: 760px) {
+  .sync-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .sync-info-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,9 +1,10 @@
 "use strict";
 
-// CPR Research System V2.3.1.1
-// Mode 2 layout stabilization: keep V2.3.1 playback and CSV validation logic unchanged,
-// and only add responsive display sizing for desktop/tablet/mobile playback.
-// No upload, no MediaPipe, no skeleton drawing, no video/CSV synchronization.
+// CPR Research System V2.3.2
+// Mode 2 time synchronization validation.
+// Keeps V2.3.1.1 local playback, responsive layout and CSV validation behavior,
+// then adds video.currentTime <-> elapsed_sec <-> frame_index nearest-frame matching.
+// No upload, no MediaPipe and no skeleton drawing.
 
 const els = {
   videoFileInput: document.getElementById("videoFileInput"),
@@ -53,6 +54,22 @@ const els = {
   csvPoseCountValue: document.getElementById("csvPoseCountValue"),
   csvVideoTimeStartValue: document.getElementById("csvVideoTimeStartValue"),
   csvVideoTimeEndValue: document.getElementById("csvVideoTimeEndValue"),
+
+  syncValidationBadge: document.getElementById("syncValidationBadge"),
+  syncVideoTimeValue: document.getElementById("syncVideoTimeValue"),
+  syncFrameValue: document.getElementById("syncFrameValue"),
+  syncElapsedValue: document.getElementById("syncElapsedValue"),
+  syncDeltaValue: document.getElementById("syncDeltaValue"),
+  syncIntervalValue: document.getElementById("syncIntervalValue"),
+  syncToleranceValue: document.getElementById("syncToleranceValue"),
+  checkSyncData: document.getElementById("checkSyncData"),
+  checkSyncDataText: document.getElementById("checkSyncDataText"),
+  checkSyncRange: document.getElementById("checkSyncRange"),
+  checkSyncRangeText: document.getElementById("checkSyncRangeText"),
+  checkSyncMatch: document.getElementById("checkSyncMatch"),
+  checkSyncMatchText: document.getElementById("checkSyncMatchText"),
+  checkFilePair: document.getElementById("checkFilePair"),
+  checkFilePairText: document.getElementById("checkFilePairText"),
 };
 
 let activeObjectUrl = null;
@@ -70,6 +87,49 @@ const CORE_LANDMARK_COLUMNS = [
   "left_wrist_x", "left_wrist_y", "left_wrist_z", "left_wrist_visibility",
   "right_wrist_x", "right_wrist_y", "right_wrist_z", "right_wrist_visibility",
 ];
+
+function median(values) {
+  if (!Array.isArray(values) || values.length === 0) return NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function getSessionBase(fileName, kind) {
+  if (!fileName) return null;
+  if (kind === "video") {
+    const match = fileName.match(/^(.*)_raw\.(webm|mp4)$/i);
+    return match ? match[1] : null;
+  }
+  if (kind === "landmarks") {
+    const match = fileName.match(/^(.*)_landmarks\.csv$/i);
+    return match ? match[1] : null;
+  }
+  return null;
+}
+
+function findNearestElapsedIndex(values, target) {
+  if (!Array.isArray(values) || values.length === 0 || !Number.isFinite(target)) return -1;
+  if (target <= values[0]) return 0;
+  const lastIndex = values.length - 1;
+  if (target >= values[lastIndex]) return lastIndex;
+
+  let low = 0;
+  let high = lastIndex;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const value = values[mid];
+    if (value === target) return mid;
+    if (value < target) low = mid + 1;
+    else high = mid - 1;
+  }
+
+  const right = Math.min(low, lastIndex);
+  const left = Math.max(right - 1, 0);
+  return Math.abs(values[left] - target) <= Math.abs(values[right] - target) ? left : right;
+}
 
 function setMessage(message, type = "normal") {
   els.replayMessage.textContent = message;
@@ -184,6 +244,153 @@ function updateReplayDisplayGeometry() {
       : "square";
 }
 
+function setSyncOverallState(state, text) {
+  els.syncValidationBadge.dataset.state = state;
+  els.syncValidationBadge.textContent = text;
+}
+
+function setSyncCheck(container, textElement, state, text) {
+  setValidationCheck(container, textElement, state, text);
+}
+
+function resetSyncPanel() {
+  els.syncVideoTimeValue.textContent = "—";
+  els.syncFrameValue.textContent = "—";
+  els.syncElapsedValue.textContent = "—";
+  els.syncDeltaValue.textContent = "—";
+  els.syncIntervalValue.textContent = "—";
+  els.syncToleranceValue.textContent = "—";
+  setSyncOverallState("idle", "等待影片與 CSV");
+  setSyncCheck(els.checkSyncData, els.checkSyncDataText, "idle", "等待影片與通過驗證的 CSV");
+  setSyncCheck(els.checkSyncRange, els.checkSyncRangeText, "idle", "等待同步");
+  setSyncCheck(els.checkSyncMatch, els.checkSyncMatchText, "idle", "等待同步");
+  setSyncCheck(els.checkFilePair, els.checkFilePairText, "idle", "等待影片與 CSV");
+}
+
+function updateFilePairCheck() {
+  if (!activeFile || !activeLandmarksFile) {
+    setSyncCheck(els.checkFilePair, els.checkFilePairText, "idle", "等待影片與 CSV");
+    return "unknown";
+  }
+
+  const videoBase = getSessionBase(activeFile.name, "video");
+  const csvBase = getSessionBase(activeLandmarksFile.name, "landmarks");
+
+  if (!videoBase || !csvBase) {
+    setSyncCheck(
+      els.checkFilePair,
+      els.checkFilePairText,
+      "idle",
+      "檔名不符合 _raw / _landmarks 慣例，無法自動判斷；時間同步仍可測試"
+    );
+    return "unknown";
+  }
+
+  if (videoBase === csvBase) {
+    setSyncCheck(els.checkFilePair, els.checkFilePairText, "pass", `同一組測試：${videoBase}`);
+    return "pass";
+  }
+
+  setSyncCheck(
+    els.checkFilePair,
+    els.checkFilePairText,
+    "fail",
+    "影片與 CSV 前綴不同；請確認沒有選到不同次測試的檔案"
+  );
+  return "fail";
+}
+
+function updateSyncPanel() {
+  const hasVideo = Boolean(activeFile && els.replayVideo.src);
+  const hasCsv = Boolean(activeLandmarksData?.allPass);
+  const pairState = updateFilePairCheck();
+
+  if (!hasVideo || !hasCsv) {
+    els.syncVideoTimeValue.textContent = hasVideo ? formatSeconds(els.replayVideo.currentTime, 4) : "—";
+    els.syncFrameValue.textContent = "—";
+    els.syncElapsedValue.textContent = "—";
+    els.syncDeltaValue.textContent = "—";
+    els.syncIntervalValue.textContent = hasCsv && Number.isFinite(activeLandmarksData.medianIntervalSec)
+      ? formatSeconds(activeLandmarksData.medianIntervalSec, 4)
+      : "—";
+    els.syncToleranceValue.textContent = hasCsv && Number.isFinite(activeLandmarksData.syncToleranceSec)
+      ? `±${activeLandmarksData.syncToleranceSec.toFixed(4)} s`
+      : "—";
+
+    const waitingFor = !hasVideo && !hasCsv ? "影片與通過驗證的 CSV" : !hasVideo ? "影片" : "通過驗證的 CSV";
+    setSyncOverallState("idle", `等待${waitingFor}`);
+    setSyncCheck(els.checkSyncData, els.checkSyncDataText, "idle", `尚缺：${waitingFor}`);
+    setSyncCheck(els.checkSyncRange, els.checkSyncRangeText, "idle", "等待同步");
+    setSyncCheck(els.checkSyncMatch, els.checkSyncMatchText, "idle", "等待同步");
+    return;
+  }
+
+  const elapsedValues = activeLandmarksData.elapsedValues;
+  const frameValues = activeLandmarksData.frameValues;
+  const target = els.replayVideo.currentTime;
+  const tolerance = activeLandmarksData.syncToleranceSec;
+  const medianInterval = activeLandmarksData.medianIntervalSec;
+  const firstElapsed = elapsedValues[0];
+  const lastElapsed = elapsedValues[elapsedValues.length - 1];
+
+  els.syncVideoTimeValue.textContent = formatSeconds(target, 4);
+  els.syncIntervalValue.textContent = Number.isFinite(medianInterval) ? formatSeconds(medianInterval, 4) : "—";
+  els.syncToleranceValue.textContent = Number.isFinite(tolerance) ? `±${tolerance.toFixed(4)} s` : "—";
+
+  setSyncCheck(
+    els.checkSyncData,
+    els.checkSyncDataText,
+    "pass",
+    `影片已載入；CSV ${activeLandmarksData.dataRows.length} 筆且結構驗證 PASS`
+  );
+
+  const inRange = target >= firstElapsed - tolerance && target <= lastElapsed + tolerance;
+  setSyncCheck(
+    els.checkSyncRange,
+    els.checkSyncRangeText,
+    inRange ? "pass" : "fail",
+    inRange
+      ? `currentTime 位於 CSV 可對應範圍 ${firstElapsed.toFixed(4)}～${lastElapsed.toFixed(4)} s`
+      : `currentTime ${target.toFixed(4)} s 超出 CSV 範圍 ${firstElapsed.toFixed(4)}～${lastElapsed.toFixed(4)} s`
+  );
+
+  const nearestIndex = findNearestElapsedIndex(elapsedValues, target);
+  if (nearestIndex < 0) {
+    els.syncFrameValue.textContent = "無法對應";
+    els.syncElapsedValue.textContent = "無法對應";
+    els.syncDeltaValue.textContent = "—";
+    setSyncCheck(els.checkSyncMatch, els.checkSyncMatchText, "fail", "找不到可用的 elapsed_sec 資料");
+    setSyncOverallState("fail", "同步失敗");
+    return;
+  }
+
+  const matchedElapsed = elapsedValues[nearestIndex];
+  const matchedFrame = frameValues[nearestIndex];
+  const delta = Math.abs(matchedElapsed - target);
+  const matchPass = inRange && delta <= tolerance;
+
+  els.syncFrameValue.textContent = Number.isFinite(matchedFrame) ? String(matchedFrame) : "無法讀取";
+  els.syncElapsedValue.textContent = formatSeconds(matchedElapsed, 4);
+  els.syncDeltaValue.textContent = formatSeconds(delta, 4);
+
+  setSyncCheck(
+    els.checkSyncMatch,
+    els.checkSyncMatchText,
+    matchPass ? "pass" : "fail",
+    matchPass
+      ? `找到最近 frame ${matchedFrame}；|Δt|=${delta.toFixed(4)} s ≤ ${tolerance.toFixed(4)} s`
+      : `最近 frame ${matchedFrame}；|Δt|=${delta.toFixed(4)} s，超出允許誤差或時間範圍`
+  );
+
+  if (!matchPass) {
+    setSyncOverallState("fail", "需檢查時間對應");
+  } else if (pairState === "fail") {
+    setSyncOverallState("loading", "時間可對應｜檔案組別需檢查");
+  } else {
+    setSyncOverallState("pass", "同步對應｜PASS");
+  }
+}
+
 function resetPlayer({ preserveMessage = false } = {}) {
   els.replayVideo.pause();
   els.replayVideo.removeAttribute("src");
@@ -201,6 +408,7 @@ function resetPlayer({ preserveMessage = false } = {}) {
   els.replayVideoCard.style.removeProperty("--replay-display-max-width");
   els.replayVideoCard.removeAttribute("data-video-orientation");
   resetVideoInfo();
+  updateSyncPanel();
 
   if (!preserveMessage) {
     setMessage("可先選擇影片，也可直接載入 V2.2.7 產生的 landmarks.csv。");
@@ -236,6 +444,7 @@ function loadSelectedVideo(file) {
   els.replayVideo.load();
 
   setMessage(`已從本機選擇影片：${file.name}。正在讀取影片資訊。`);
+  updateSyncPanel();
 }
 
 // CSV parser with support for quoted fields, commas inside quotes, CRLF/LF and UTF-8 BOM.
@@ -392,6 +601,7 @@ function resetLandmarkValidation({ preserveMessage = false } = {}) {
   setValidationCheck(els.checkElapsedData, els.checkElapsedDataText, "idle", "等待載入");
   setValidationCheck(els.checkFrameIndex, els.checkFrameIndexText, "idle", "等待載入");
   setValidationCheck(els.checkRowShape, els.checkRowShapeText, "idle", "等待載入");
+  updateSyncPanel();
 
   if (!preserveMessage) {
     setMessage("CSV 已清除。可重新選擇 V2.2.7 產生的 landmarks.csv。");
@@ -469,6 +679,18 @@ function validateLandmarksCsv(file, parsed) {
   );
 
   const allPass = parsePass && timeColumnsPass && coreLandmarksPass && elapsedPass && framePass && rowShapePass;
+  const positiveIntervals = [];
+  for (let i = 1; i < elapsedValues.length; i += 1) {
+    const interval = elapsedValues[i] - elapsedValues[i - 1];
+    if (Number.isFinite(interval) && interval > 0) positiveIntervals.push(interval);
+  }
+  const medianIntervalSec = median(positiveIntervals);
+  // At ~30 fps the nearest timestamp normally differs by less than half a frame.
+  // Keep a minimum 50 ms tolerance so the first landmark (often ~40 ms after record start)
+  // can still map to the beginning of the raw WebM; cap at 150 ms to avoid hiding large errors.
+  const syncToleranceSec = Number.isFinite(medianIntervalSec)
+    ? Math.min(0.15, Math.max(0.05, medianIntervalSec * 1.5))
+    : 0.05;
 
   els.landmarkFileNameValue.textContent = file.name;
   els.landmarkRowCountValue.textContent = dataRows.length.toLocaleString("zh-TW");
@@ -510,6 +732,8 @@ function validateLandmarksCsv(file, parsed) {
     frameValues,
     elapsedValues,
     videoTimeValues,
+    medianIntervalSec,
+    syncToleranceSec,
   };
 }
 
@@ -533,16 +757,18 @@ async function loadLandmarksCsv(file) {
     const parsed = parseCsv(text);
     const validation = validateLandmarksCsv(file, parsed);
     activeLandmarksData = validation;
+    updateSyncPanel();
 
     if (validation.allPass) {
       setCsvOverallState("pass", "讀取成功｜PASS");
-      setMessage(`Landmarks CSV 已成功讀取並通過 V2.3.1 結構驗證：${file.name}`, "ok");
+      setMessage(`Landmarks CSV 已成功讀取並通過既有結構驗證：${file.name}`, "ok");
     } else {
       setCsvOverallState("fail", "已讀取｜需檢查");
-      setMessage(`CSV 已讀取，但部分 V2.3.1 驗證項目未通過。請查看下方紅色項目。`, "error");
+      setMessage(`CSV 已讀取，但部分結構驗證項目未通過。請查看下方紅色項目。`, "error");
     }
   } catch (error) {
     activeLandmarksData = null;
+    updateSyncPanel();
     setCsvOverallState("fail", "讀取失敗");
     setValidationCheck(els.checkParse, els.checkParseText, "fail", error?.message || "無法解析 CSV");
     setMessage(`CSV 讀取失敗：${error?.message || "未知錯誤"}`, "error");
@@ -594,6 +820,7 @@ els.replayVideo.addEventListener("loadedmetadata", () => {
     ? formatTime(els.replayVideo.duration)
     : "瀏覽器未提供";
 
+  updateSyncPanel();
   setMessage(`影片已載入：${activeFile.name}。可使用影片下方原生控制列播放、暫停或拖曳時間。`, "ok");
 });
 
@@ -605,11 +832,17 @@ els.replayVideo.addEventListener("durationchange", () => {
 
 els.replayVideo.addEventListener("timeupdate", () => {
   els.currentTimeValue.textContent = formatTime(els.replayVideo.currentTime, true);
+  updateSyncPanel();
 });
 
 els.replayVideo.addEventListener("seeked", () => {
   els.currentTimeValue.textContent = formatTime(els.replayVideo.currentTime, true);
+  updateSyncPanel();
 });
+
+els.replayVideo.addEventListener("loadeddata", updateSyncPanel);
+els.replayVideo.addEventListener("play", updateSyncPanel);
+els.replayVideo.addEventListener("pause", updateSyncPanel);
 
 els.replayVideo.addEventListener("ratechange", () => {
   const value = String(els.replayVideo.playbackRate);
@@ -634,5 +867,6 @@ window.addEventListener("beforeunload", () => {
   releaseObjectUrl();
 });
 
+resetSyncPanel();
 resetPlayer();
 resetLandmarkValidation({ preserveMessage: true });
