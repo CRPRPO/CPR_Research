@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CPR Research System V2.2.7</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v227" />
+  <title>CPR Research System V2.3.0</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v230" />
 </head>
 <body>
   <main class="home-shell">
     <section class="hero-card">
-      <p class="eyebrow">CPR Research System V2.2.7</p>
+      <p class="eyebrow">CPR Research System V2.3.0</p>
       <h1>CPR 姿勢即時偵測與研究資料紀錄系統</h1>
       <p class="hero-text">
         本系統採用 640×480 / 30fps 與 MediaPipe Pose Landmarker Full 作為主要分析設定。
-        首階段先完成即時測試與錄影模式，保留原始影片、骨架座標、姿勢指標與 metadata。
+        模式一維持 V2.2.7 鎖定基準；V2.3.0 新增純本機影片回播，作為後續骨架重建與同步驗證的基礎。
       </p>
     </section>
 
@@ -25,11 +25,11 @@
         <strong>開始使用 →</strong>
       </a>
 
-      <a class="mode-card disabled" href="replay.html" aria-disabled="true">
+      <a class="mode-card active" href="replay.html">
         <span class="mode-badge">模式二</span>
         <h2>本機回播模式</h2>
-        <p>後續可載入本機 webm 與 landmarks.csv，同步回播影片、骨架與姿勢指標。</p>
-        <strong>預留入口</strong>
+        <p>選擇本機 webm 或 mp4 直接回播。V2.3.0 不上傳影片、不執行 MediaPipe，也尚未載入 landmarks.csv。</p>
+        <strong>開始使用 →</strong>
       </a>
 
       <a class="mode-card disabled" href="analyze.html" aria-disabled="true">
@@ -43,7 +43,8 @@
     <section class="note-card">
       <h2>目前版本重點</h2>
       <ul>
-        <li>即時測試頁預設使用 640×480 / 30fps / Full 模型。</li>
+        <li>模式一維持 V2.2.7 原始攝影與錄影流程，不修改 live.html / live.js。</li>
+        <li>模式二 V2.3.0 可在瀏覽器本機載入 webm / mp4，資料不需上傳。</li>
         <li>原始影片不疊骨架，骨架資料另外存成 CSV，方便回播與研究分析。</li>
         <li>按壓速率即時顯示；影像位移 px 只記錄，不做深度判斷。</li>
         <li>檔案以開始測試當下日期時間產生 session id，避免檔名重複。</li>

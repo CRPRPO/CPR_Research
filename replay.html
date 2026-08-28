@@ -3,18 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.2.7</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v227" />
+  <title>本機回播模式｜CPR Research System V2.3.0</title>
+  <link rel="stylesheet" href="style.css?v=20260828-v230" />
 </head>
 <body>
-  <main class="placeholder-shell">
-    <a class="back-link" href="index.html">← 回首頁</a>
-    <section class="hero-card">
-      <p class="eyebrow">模式二</p>
-      <h1>本機回播模式</h1>
-      <p class="hero-text">此頁目前為預留入口。下一階段將支援選擇本機 webm 與 landmarks.csv，同步疊上骨架與姿勢指標。</p>
-      <a class="primary-link" href="live.html">先使用即時測試 / 錄影模式</a>
+  <main class="app-shell replay-shell">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="index.html">← 回首頁</a>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.0</p>
+        <h1>本機回播模式</h1>
+      </div>
+      <div class="version-pill">V2.3.0｜Local-only</div>
+    </header>
+
+    <section class="replay-layout">
+      <aside class="panel replay-control-panel">
+        <h2>選擇本機影片</h2>
+
+        <label class="field">
+          <span>影片檔案</span>
+          <input id="videoFileInput" type="file" accept="video/webm,video/mp4,.webm,.mp4" />
+        </label>
+
+        <div class="control-row replay-button-row">
+          <button id="clearVideoBtn" class="secondary-btn" type="button" disabled>清除影片</button>
+        </div>
+
+        <label class="field">
+          <span>播放速度</span>
+          <select id="playbackRateSelect" disabled>
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+
+        <div class="info-box local-only-box">
+          <strong>🔒 本機回播</strong>
+          <p>影片只會由您的電腦讀入目前瀏覽器分頁，不會上傳至伺服器、雲端或外部 API。</p>
+        </div>
+
+        <div class="status-line" id="replayMessage" role="status" aria-live="polite">
+          請選擇 V2.2.7 錄製的 webm 原始影片。
+        </div>
+      </aside>
+
+      <section class="replay-main-column">
+        <div class="video-card replay-video-card" id="replayVideoCard">
+          <video id="replayVideo" controls playsinline preload="metadata"></video>
+          <div class="replay-empty-state" id="replayEmptyState">
+            <strong>尚未載入影片</strong>
+            <span>選擇本機 webm 或 mp4 後，即可在此回播。</span>
+          </div>
+        </div>
+
+        <section class="panel replay-info-panel" aria-label="影片資訊">
+          <h2>影片資訊</h2>
+          <div class="replay-info-grid">
+            <div class="metric-card muted">
+              <span>檔案名稱</span>
+              <strong id="fileNameValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>檔案大小</span>
+              <strong id="fileSizeValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>原始解析度</span>
+              <strong id="resolutionValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>影片長度</span>
+              <strong id="durationValue">—</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>目前時間</span>
+              <strong id="currentTimeValue">00:00.000</strong>
+            </div>
+            <div class="metric-card muted">
+              <span>檔案格式</span>
+              <strong id="fileTypeValue">—</strong>
+            </div>
+          </div>
+        </section>
+      </section>
     </section>
   </main>
+
+  <script src="replay.js?v=20260828-v230" defer></script>
 </body>
 </html>
