@@ -1114,3 +1114,71 @@ input:focus, select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mode 1 V2.2.8 — optional QCPR manual-entry panel */
+.optional-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(15, 23, 42, 0.42);
+  display: grid;
+  gap: 12px;
+}
+
+.optional-card-head strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.optional-card-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.qcpr-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.qcpr-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.qcpr-flags {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.qcpr-flags legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.qcpr-flags label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.qcpr-flags input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .qcpr-grid,
+  .qcpr-flags {
+    grid-template-columns: 1fr;
+  }
+}

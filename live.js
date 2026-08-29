@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.7";
+const APP_VERSION = "CPR Research System V2.2.8";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -13,7 +13,7 @@ let currentRequestedQuality = "640x480x30";
 const JUMP_THRESHOLD_PX = 25;
 const QUALITY_MIN_VISIBILITY = 0.60;
 const POSE_STALE_MS = 500;
-const PREP_COUNTDOWN_SEC = 10;
+const DEFAULT_PREP_COUNTDOWN_SEC = 0;
 const AUTO_SIDE_SWITCH_MARGIN = 0.75;
 const AUTO_SIDE_Z_MARGIN = 0.08;
 const DISPLAY_SMOOTH_ALPHA = 0.34;
@@ -42,10 +42,26 @@ const els = {
   subjectCode: document.getElementById("subjectCode"),
   testStage: document.getElementById("testStage"),
   durationSec: document.getElementById("durationSec"),
+  prepCountdownSec: document.getElementById("prepCountdownSec"),
   cameraSelect: document.getElementById("cameraSelect"),
   refreshCamerasBtn: document.getElementById("refreshCamerasBtn"),
   trackedSideMode: document.getElementById("trackedSideMode"),
   mirrorDisplay: document.getElementById("mirrorDisplay"),
+  qcprAvailable: document.getElementById("qcprAvailable"),
+  qcprFields: document.getElementById("qcprFields"),
+  qcprScore: document.getElementById("qcprScore"),
+  qcprCompressionCount: document.getElementById("qcprCompressionCount"),
+  qcprMeanDepthMm: document.getElementById("qcprMeanDepthMm"),
+  qcprAdequateDepthPct: document.getElementById("qcprAdequateDepthPct"),
+  qcprAdequateRecoilPct: document.getElementById("qcprAdequateRecoilPct"),
+  qcprMeanRateCpm: document.getElementById("qcprMeanRateCpm"),
+  qcprCompressionFractionPct: document.getElementById("qcprCompressionFractionPct"),
+  qcprLongestPauseSec: document.getElementById("qcprLongestPauseSec"),
+  qcprImproveRecoil: document.getElementById("qcprImproveRecoil"),
+  qcprImproveRate: document.getElementById("qcprImproveRate"),
+  qcprImproveDepth: document.getElementById("qcprImproveDepth"),
+  qcprImproveOther: document.getElementById("qcprImproveOther"),
+  qcprOtherNote: document.getElementById("qcprOtherNote"),
   video: document.getElementById("video"),
   videoCard: document.getElementById("videoCard"),
   canvas: document.getElementById("overlayCanvas"),
@@ -96,6 +112,11 @@ let lastFramePerfMs = null;
 let cameraSettings = null;
 let selectedCameraLabel = "";
 let selectedCameraShort = "";
+let cameraStartRequestPerfMs = 0;
+let cameraReadyPerfMs = 0;
+let cameraReadyIso = "";
+let firstPoseDetectedPerfMs = 0;
+let firstPoseDetectedIso = "";
 
 let isCameraRunning = false;
 let isRecording = false;
@@ -107,6 +128,12 @@ let fileBase = "";
 let recordingStartMs = 0;
 let recordingStopMs = 0;
 let recordingDurationSec = 120;
+let selectedPrepCountdownSec = DEFAULT_PREP_COUNTDOWN_SEC;
+let recordingRequestedPerfMs = 0;
+let recordingStartIso = "";
+let recordingFinalizedIso = "";
+let firstRecordedLandmarkPerfMs = 0;
+let firstRecordedLandmarkElapsedSec = null;
 let recordingTimerId = null;
 let frameIndex = 0;
 
@@ -210,6 +237,108 @@ function round(value, digits = 3) {
   if (!Number.isFinite(value)) return "";
   const p = Math.pow(10, digits);
   return Math.round(value * p) / p;
+}
+
+function optionalNumber(el) {
+  const raw = String(el?.value ?? "").trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isMobileOrTabletDevice() {
+  const ua = navigator.userAgent || "";
+  const touchMac = /Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+  return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(ua) || touchMac;
+}
+
+function rearCameraScore(label = "") {
+  const text = String(label).toLowerCase();
+  if (!text) return 0;
+  if (/(back|rear|environment|後置|後鏡頭|背面)/i.test(text)) return 4;
+  if (/(main camera|主相機|wide back|ultra wide back|telephoto back)/i.test(text)) return 3;
+  if (/(front|user|前置|前鏡頭|facetime)/i.test(text)) return -3;
+  return 0;
+}
+
+function getOrientationSnapshot() {
+  const orientationType = screen.orientation?.type || "";
+  const orientationAngle = Number.isFinite(screen.orientation?.angle)
+    ? screen.orientation.angle
+    : (Number.isFinite(window.orientation) ? window.orientation : null);
+  return {
+    viewport_width: window.innerWidth || null,
+    viewport_height: window.innerHeight || null,
+    screen_width: screen.width || null,
+    screen_height: screen.height || null,
+    device_pixel_ratio: window.devicePixelRatio || 1,
+    screen_orientation_type: orientationType || null,
+    screen_orientation_angle: orientationAngle,
+    video_orientation: cameraSettings?.width && cameraSettings?.height
+      ? (cameraSettings.height > cameraSettings.width ? "portrait" : "landscape")
+      : null
+  };
+}
+
+function getQcprMetadata() {
+  const available = els.qcprAvailable?.value === "yes";
+  if (!available) return { available: false };
+
+  const flags = [];
+  if (els.qcprImproveRecoil?.checked) flags.push("recoil");
+  if (els.qcprImproveRate?.checked) flags.push("rate");
+  if (els.qcprImproveDepth?.checked) flags.push("depth");
+  if (els.qcprImproveOther?.checked) flags.push("other");
+
+  return {
+    available: true,
+    entry_method: "manual_from_laerdal_qcpr_app_result",
+    score: optionalNumber(els.qcprScore),
+    compression_count: optionalNumber(els.qcprCompressionCount),
+    mean_depth_mm: optionalNumber(els.qcprMeanDepthMm),
+    adequate_depth_pct: optionalNumber(els.qcprAdequateDepthPct),
+    adequate_recoil_pct: optionalNumber(els.qcprAdequateRecoilPct),
+    mean_rate_cpm: optionalNumber(els.qcprMeanRateCpm),
+    compression_fraction_pct: optionalNumber(els.qcprCompressionFractionPct),
+    longest_pause_sec: optionalNumber(els.qcprLongestPauseSec),
+    improvement_flags: flags,
+    other_note: String(els.qcprOtherNote?.value || "").trim() || null
+  };
+}
+
+function updateQcprVisibility() {
+  if (!els.qcprFields) return;
+  els.qcprFields.hidden = els.qcprAvailable?.value !== "yes";
+}
+
+function resetQcprForNewSession() {
+  if (els.qcprAvailable) els.qcprAvailable.value = "no";
+  [
+    els.qcprScore, els.qcprCompressionCount, els.qcprMeanDepthMm, els.qcprAdequateDepthPct,
+    els.qcprAdequateRecoilPct, els.qcprMeanRateCpm, els.qcprCompressionFractionPct,
+    els.qcprLongestPauseSec, els.qcprOtherNote
+  ].filter(Boolean).forEach(el => { el.value = ""; });
+  [els.qcprImproveRecoil, els.qcprImproveRate, els.qcprImproveDepth, els.qcprImproveOther]
+    .filter(Boolean).forEach(el => { el.checked = false; });
+  updateQcprVisibility();
+}
+
+function updateStartTestButtonLabel() {
+  const prep = Number(els.prepCountdownSec?.value ?? DEFAULT_PREP_COUNTDOWN_SEC);
+  els.startTestBtn.textContent = prep > 0
+    ? `開始測試 / ${prep}秒倒數後錄影`
+    : "開始測試 / 立即錄影";
+}
+
+function refreshMetadataAfterFormChange() {
+  if (!rawVideoBlob || !recordingFinalizedIso || !finalMetadata) return;
+  finalMetadata = {
+    ...finalMetadata,
+    metadata_updated_at: new Date().toISOString(),
+    qcpr: getQcprMetadata()
+  };
+  metadataBlob = new Blob([JSON.stringify(finalMetadata, null, 2)], { type: "application/json;charset=utf-8" });
+  enableDownloads();
 }
 
 function distance(a, b) {
@@ -639,7 +768,7 @@ function movingAverage(values, n) {
   return out;
 }
 
-function makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameIntervalMs) {
+function makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameIntervalMs, timing = {}) {
   const row = {
     app_version: APP_VERSION,
     frame_index: frameIndex,
@@ -662,7 +791,12 @@ function makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameI
     detection_ms: round(detectionMs, 3),
     frame_interval_ms: round(frameIntervalMs, 3),
     pose_fps_current: Number.isFinite(frameIntervalMs) && frameIntervalMs > 0 ? round(1000 / frameIntervalMs, 3) : "",
-    jump_threshold_px: JUMP_THRESHOLD_PX
+    jump_threshold_px: JUMP_THRESHOLD_PX,
+    video_time_sec_observed: round(timing.observedVideoTimeSec, 4),
+    frame_observed_elapsed_sec: Number.isFinite(timing.frameObservedPerfMs) ? round((timing.frameObservedPerfMs - recordingStartMs) / 1000, 4) : "",
+    detection_start_elapsed_sec: Number.isFinite(timing.detectionStartPerfMs) ? round((timing.detectionStartPerfMs - recordingStartMs) / 1000, 4) : "",
+    detection_end_elapsed_sec: Number.isFinite(timing.detectionEndPerfMs) ? round((timing.detectionEndPerfMs - recordingStartMs) / 1000, 4) : "",
+    result_logged_elapsed_sec: Number.isFinite(timing.resultLoggedPerfMs) ? round((timing.resultLoggedPerfMs - recordingStartMs) / 1000, 4) : round(elapsedSec, 4)
   };
 
   for (const name of POINTS) {
@@ -752,7 +886,9 @@ function landmarkHeaders() {
     "app_version", "frame_index", "timestamp_iso", "elapsed_sec", "video_time_sec", "phase",
     "model_key", "model_label", "requested_quality", "requested_width", "requested_height", "requested_fps",
     "actual_width", "actual_height", "actual_frame_rate", "camera_label", "camera_device_short",
-    "pose_count", "detection_ms", "frame_interval_ms", "pose_fps_current", "jump_threshold_px"
+    "pose_count", "detection_ms", "frame_interval_ms", "pose_fps_current", "jump_threshold_px",
+    "video_time_sec_observed", "frame_observed_elapsed_sec", "detection_start_elapsed_sec",
+    "detection_end_elapsed_sec", "result_logged_elapsed_sec"
   ];
   for (const name of POINTS) {
     base.push(`${name}_x`, `${name}_y`, `${name}_z`, `${name}_visibility`, `${name}_px`, `${name}_py`, `${name}_step_px`, `${name}_jump`);
@@ -910,6 +1046,11 @@ async function refreshCameras() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videos = devices.filter(d => d.kind === "videoinput");
+    const mobileOrTablet = isMobileOrTabletDevice();
+    const orderedVideos = mobileOrTablet
+      ? [...videos].sort((a, b) => rearCameraScore(b.label) - rearCameraScore(a.label))
+      : videos;
+
     els.cameraSelect.innerHTML = "";
     if (!videos.length) {
       const opt = document.createElement("option");
@@ -918,14 +1059,29 @@ async function refreshCameras() {
       els.cameraSelect.appendChild(opt);
       return;
     }
-    videos.forEach((device, idx) => {
+
+    if (mobileOrTablet) {
+      const autoRear = document.createElement("option");
+      autoRear.value = "__environment__";
+      autoRear.textContent = "★ 自動：後鏡頭優先 (Back Camera)";
+      els.cameraSelect.appendChild(autoRear);
+    }
+
+    orderedVideos.forEach((device, idx) => {
       const opt = document.createElement("option");
       opt.value = device.deviceId;
-      opt.textContent = device.label || `攝影機 ${idx + 1}`;
+      const label = device.label || `攝影機 ${idx + 1}`;
+      const rearMark = mobileOrTablet && rearCameraScore(device.label) > 0 ? "★ " : "";
+      opt.textContent = `${rearMark}${label}`;
       els.cameraSelect.appendChild(opt);
     });
-    if (previous && videos.some(d => d.deviceId === previous)) {
+
+    if (previous === "__environment__" && mobileOrTablet) {
+      els.cameraSelect.value = "__environment__";
+    } else if (previous && videos.some(d => d.deviceId === previous)) {
       els.cameraSelect.value = previous;
+    } else if (mobileOrTablet) {
+      els.cameraSelect.value = "__environment__";
     }
   } catch (err) {
     setMessage(`讀取攝影機清單失敗：${err.message}`);
@@ -946,6 +1102,11 @@ function applyVideoCardAspect(width, height) {
 
 async function startCameraAndModel() {
   try {
+    cameraStartRequestPerfMs = performance.now();
+    cameraReadyPerfMs = 0;
+    cameraReadyIso = "";
+    firstPoseDetectedPerfMs = 0;
+    firstPoseDetectedIso = "";
     els.startCameraBtn.disabled = true;
     setMessage("正在啟動攝影機與模型...");
 
@@ -958,7 +1119,10 @@ async function startCameraAndModel() {
 
     await loadModel();
 
-    const selectedDeviceId = els.cameraSelect.value;
+    const selectedCameraChoice = els.cameraSelect.value;
+    const selectedDeviceId = selectedCameraChoice && selectedCameraChoice !== "__environment__"
+      ? selectedCameraChoice
+      : "";
     const portraitRequest = shouldRequestPortraitCamera();
     currentRequestedWidth = portraitRequest ? 480 : DEFAULT_WIDTH;
     currentRequestedHeight = portraitRequest ? 640 : DEFAULT_HEIGHT;
@@ -971,6 +1135,8 @@ async function startCameraAndModel() {
     };
     if (selectedDeviceId) {
       videoConstraints.deviceId = { exact: selectedDeviceId };
+    } else if (selectedCameraChoice === "__environment__" || isMobileOrTabletDevice()) {
+      videoConstraints.facingMode = { ideal: "environment" };
     }
 
     if (mediaStream) stopCameraOnly();
@@ -980,6 +1146,8 @@ async function startCameraAndModel() {
 
     const track = mediaStream.getVideoTracks()[0];
     cameraSettings = track.getSettings();
+    cameraReadyPerfMs = performance.now();
+    cameraReadyIso = new Date().toISOString();
     selectedCameraLabel = track.label || "";
     selectedCameraShort = cameraSettings?.deviceId ? `${cameraSettings.deviceId.slice(0, 6)}…${cameraSettings.deviceId.slice(-4)}` : "";
 
@@ -1024,21 +1192,30 @@ function startLoop() {
     if (els.video.readyState >= 2 && els.video.videoWidth > 0 && els.video.videoHeight > 0) {
       if (els.video.currentTime !== lastVideoTime) {
         const nowPerf = performance.now();
+        const frameObservedPerfMs = nowPerf;
+        const observedVideoTimeSec = els.video.currentTime;
         frameIntervalMs = Number.isFinite(lastFramePerfMs) ? nowPerf - lastFramePerfMs : "";
         lastFramePerfMs = nowPerf;
-        lastVideoTime = els.video.currentTime;
+        lastVideoTime = observedVideoTimeSec;
 
-        const start = performance.now();
+        const detectionStartPerfMs = performance.now();
+        let detectionEndPerfMs = detectionStartPerfMs;
         try {
           const result = poseLandmarker.detectForVideo(els.video, nowPerf);
-          detectionMs = performance.now() - start;
+          detectionEndPerfMs = performance.now();
+          detectionMs = detectionEndPerfMs - detectionStartPerfMs;
           lastDetectionMs = detectionMs;
           latestPoseCount = result.landmarks?.length || 0;
           if (latestPoseCount > 0) {
             latestLandmarks = result.landmarks[0];
-            latestPoseTimestampMs = performance.now();
+            latestPoseTimestampMs = detectionEndPerfMs;
+            if (!firstPoseDetectedPerfMs) {
+              firstPoseDetectedPerfMs = detectionEndPerfMs;
+              firstPoseDetectedIso = new Date().toISOString();
+            }
           }
         } catch (err) {
+          detectionEndPerfMs = performance.now();
           console.warn("MediaPipe detectForVideo failed:", err);
           latestPoseCount = 0;
         }
@@ -1046,9 +1223,23 @@ function startLoop() {
         if (latestLandmarks) {
           pointMap = getPointMap(latestLandmarks);
           addSteps(pointMap, lastRecordPointMap);
-          const elapsedSec = isRecording ? (performance.now() - recordingStartMs) / 1000 : 0;
+          const resultLoggedPerfMs = performance.now();
+          const elapsedSec = isRecording ? (resultLoggedPerfMs - recordingStartMs) / 1000 : 0;
           if (isRecording) {
-            collectRecordFrame(pointMap, elapsedSec, els.video.currentTime, detectionMs, frameIntervalMs);
+            collectRecordFrame(
+              pointMap,
+              elapsedSec,
+              els.video.currentTime,
+              detectionMs,
+              frameIntervalMs,
+              {
+                frameObservedPerfMs,
+                observedVideoTimeSec,
+                detectionStartPerfMs,
+                detectionEndPerfMs,
+                resultLoggedPerfMs
+              }
+            );
           } else {
             computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs);
           }
@@ -1062,10 +1253,14 @@ function startLoop() {
   rafId = requestAnimationFrame(loop);
 }
 
-function collectRecordFrame(pointMap, elapsedSec, videoTimeSec, detectionMs, frameIntervalMs) {
+function collectRecordFrame(pointMap, elapsedSec, videoTimeSec, detectionMs, frameIntervalMs, timing = {}) {
   if (elapsedSec < 0) return;
+  if (!firstRecordedLandmarkPerfMs) {
+    firstRecordedLandmarkPerfMs = timing.resultLoggedPerfMs || performance.now();
+    firstRecordedLandmarkElapsedSec = elapsedSec;
+  }
   const metrics = computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs);
-  landmarkRows.push(makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameIntervalMs));
+  landmarkRows.push(makeLandmarkRow(elapsedSec, videoTimeSec, pointMap, detectionMs, frameIntervalMs, timing));
   metricRows.push(makeMetricsRow(elapsedSec, videoTimeSec, metrics));
   if (Number.isFinite(detectionMs)) detectionMsValues.push(detectionMs);
   if (Number.isFinite(frameIntervalMs)) {
@@ -1095,22 +1290,36 @@ function startTest() {
   }
   if (isRecording || isPreparing) return;
 
+  if (recordingFinalizedIso) resetQcprForNewSession();
+
   sessionId = makeSessionId(new Date());
   fileBase = makeFileBase();
   recordingDurationSec = Number(els.durationSec.value || 120);
+  selectedPrepCountdownSec = Number(els.prepCountdownSec?.value ?? DEFAULT_PREP_COUNTDOWN_SEC);
+  recordingRequestedPerfMs = performance.now();
+  firstRecordedLandmarkPerfMs = 0;
+  firstRecordedLandmarkElapsedSec = null;
   autoTrackedSide = "right";
   lastRecordPointMap = null;
 
   isPreparing = true;
-  els.recordStatus.textContent = "準備倒數";
+  els.recordStatus.textContent = selectedPrepCountdownSec > 0 ? "準備倒數" : "準備開始";
   els.sessionDisplay.textContent = fileBase;
   els.startTestBtn.disabled = true;
   els.stopTestBtn.disabled = false;
   els.durationSec.disabled = true;
+  if (els.prepCountdownSec) els.prepCountdownSec.disabled = true;
   els.subjectCode.disabled = true;
   els.testStage.disabled = true;
 
-  let remain = PREP_COUNTDOWN_SEC;
+  if (selectedPrepCountdownSec <= 0) {
+    els.timerDisplay.textContent = formatTime(recordingDurationSec);
+    setMessage("準備倒數 0 秒：立即開始錄影與資料紀錄。");
+    beginRecordingSession();
+    return;
+  }
+
+  let remain = selectedPrepCountdownSec;
   els.timerDisplay.textContent = formatTime(remain);
   setMessage(`準備倒數 ${remain} 秒。倒數期間不錄影、不記錄資料，請受試者就定位。`);
 
@@ -1128,12 +1337,15 @@ function startTest() {
   }, 1000);
 }
 
+
 function beginRecordingSession() {
   if (!isPreparing) return;
   isPreparing = false;
 
   recordingStartMs = performance.now();
+  recordingStartIso = new Date().toISOString();
   recordingStopMs = 0;
+  recordingFinalizedIso = "";
   frameIndex = 0;
   landmarkRows = [];
   metricRows = [];
@@ -1188,6 +1400,7 @@ function stopTest() {
     els.stopTestBtn.disabled = true;
     els.startTestBtn.disabled = false;
     els.durationSec.disabled = false;
+    if (els.prepCountdownSec) els.prepCountdownSec.disabled = false;
     els.subjectCode.disabled = false;
     els.testStage.disabled = false;
     setMessage("準備倒數已取消。");
@@ -1203,6 +1416,7 @@ function stopTest() {
   els.recordStatus.textContent = "處理檔案中";
   els.stopTestBtn.disabled = true;
   els.durationSec.disabled = false;
+  if (els.prepCountdownSec) els.prepCountdownSec.disabled = false;
   els.subjectCode.disabled = false;
   els.testStage.disabled = false;
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
@@ -1213,6 +1427,7 @@ function stopTest() {
 }
 
 function finalizeFiles() {
+  recordingFinalizedIso = new Date().toISOString();
   rawVideoBlob = new Blob(recordedChunks, { type: recordedChunks[0]?.type || "video/webm" });
   const landmarksCsv = toCsv(landmarkHeaders(), landmarkRows);
   const metricsCsv = toCsv(metricsHeaders(), metricRows);
@@ -1228,18 +1443,34 @@ function finalizeFiles() {
 
 function buildMetadata() {
   const durationActualSec = recordingStopMs ? (recordingStopMs - recordingStartMs) / 1000 : recordingDurationSec;
+  const orientation = getOrientationSnapshot();
+  const mobileOrTablet = isMobileOrTabletDevice();
+  const firstPoseAfterCameraReadyMs = cameraReadyPerfMs && firstPoseDetectedPerfMs
+    ? firstPoseDetectedPerfMs - cameraReadyPerfMs
+    : null;
+  const cameraReadyBeforeRecordRequestSec = cameraReadyPerfMs && recordingRequestedPerfMs
+    ? (recordingRequestedPerfMs - cameraReadyPerfMs) / 1000
+    : null;
+  const firstPoseWarmupBeforeRecordingSec = firstPoseDetectedPerfMs && recordingStartMs && firstPoseDetectedPerfMs <= recordingStartMs
+    ? (recordingStartMs - firstPoseDetectedPerfMs) / 1000
+    : null;
+  const firstRecordedLandmarkAfterStartMs = firstRecordedLandmarkPerfMs && recordingStartMs
+    ? firstRecordedLandmarkPerfMs - recordingStartMs
+    : null;
+
   return {
     status: "finished",
     app_version: APP_VERSION,
     tasks_version: TASKS_VERSION,
-    generated_at: new Date().toISOString(),
+    generated_at: recordingFinalizedIso || new Date().toISOString(),
+    metadata_updated_at: new Date().toISOString(),
     session_id: sessionId,
     file_base: fileBase,
     subject_code: sanitizeFilePart(els.subjectCode.value, "NOID"),
     test_stage: els.testStage.value,
     duration_sec_requested: recordingDurationSec,
     duration_sec_actual: round(durationActualSec, 3),
-    prep_countdown_sec: PREP_COUNTDOWN_SEC,
+    prep_countdown_sec: selectedPrepCountdownSec,
     mode: "live_recording",
     video_recording: {
       raw_video_filename: `${fileBase}_raw.${rawVideoExtension}`,
@@ -1252,10 +1483,45 @@ function buildMetadata() {
       requested_width: currentRequestedWidth,
       requested_height: currentRequestedHeight,
       requested_fps: DEFAULT_FPS,
+      mobile_or_tablet: mobileOrTablet,
+      preferred_facing_mode: mobileOrTablet ? "environment" : "user_selected",
+      actual_facing_mode: cameraSettings?.facingMode || null,
       actual_settings: cameraSettings,
       camera_label: selectedCameraLabel,
       camera_device_short: selectedCameraShort
     },
+    display: {
+      mirror_display: els.mirrorDisplay?.value === "on",
+      ...orientation
+    },
+    timing: {
+      camera_ready_iso: cameraReadyIso || null,
+      first_pose_detected_iso: firstPoseDetectedIso || null,
+      recording_start_iso: recordingStartIso || null,
+      camera_start_request_to_ready_ms: cameraStartRequestPerfMs && cameraReadyPerfMs
+        ? round(cameraReadyPerfMs - cameraStartRequestPerfMs, 3)
+        : null,
+      first_pose_after_camera_ready_ms: Number.isFinite(firstPoseAfterCameraReadyMs)
+        ? round(firstPoseAfterCameraReadyMs, 3)
+        : null,
+      camera_ready_before_record_request_sec: Number.isFinite(cameraReadyBeforeRecordRequestSec)
+        ? round(cameraReadyBeforeRecordRequestSec, 4)
+        : null,
+      record_request_to_record_start_ms: recordingRequestedPerfMs && recordingStartMs
+        ? round(recordingStartMs - recordingRequestedPerfMs, 3)
+        : null,
+      first_pose_warmup_before_recording_sec: Number.isFinite(firstPoseWarmupBeforeRecordingSec)
+        ? round(firstPoseWarmupBeforeRecordingSec, 4)
+        : null,
+      first_recorded_landmark_after_record_start_ms: Number.isFinite(firstRecordedLandmarkAfterStartMs)
+        ? round(firstRecordedLandmarkAfterStartMs, 3)
+        : null,
+      first_recorded_landmark_elapsed_sec: Number.isFinite(firstRecordedLandmarkElapsedSec)
+        ? round(firstRecordedLandmarkElapsedSec, 4)
+        : null,
+      timing_note: "V2.2.8 adds frame-observed and detection start/end elapsed timestamps to landmarks.csv for latency diagnosis; existing elapsed_sec behavior is preserved for backward comparison."
+    },
+    qcpr: getQcprMetadata(),
     model: {
       model_key: "full",
       model_label: "Pose Landmarker Full",
@@ -1282,6 +1548,7 @@ function buildMetadata() {
     user_agent: navigator.userAgent
   };
 }
+
 
 function enableDownloads() {
   els.downloadRawBtn.disabled = !rawVideoBlob;
@@ -1333,7 +1600,7 @@ function stopCameraOnly() {
 }
 
 function stopCamera() {
-  if (isRecording) stopTest();
+  if (isRecording || isPreparing) stopTest();
   stopCameraOnly();
   els.startCameraBtn.disabled = false;
   els.stopCameraBtn.disabled = true;
@@ -1354,6 +1621,20 @@ function initEvents() {
   });
   els.startCameraBtn.addEventListener("click", startCameraAndModel);
   els.stopCameraBtn.addEventListener("click", stopCamera);
+  els.prepCountdownSec?.addEventListener("change", updateStartTestButtonLabel);
+  els.qcprAvailable?.addEventListener("change", () => {
+    updateQcprVisibility();
+    refreshMetadataAfterFormChange();
+  });
+  [
+    els.qcprScore, els.qcprCompressionCount, els.qcprMeanDepthMm, els.qcprAdequateDepthPct,
+    els.qcprAdequateRecoilPct, els.qcprMeanRateCpm, els.qcprCompressionFractionPct,
+    els.qcprLongestPauseSec, els.qcprImproveRecoil, els.qcprImproveRate, els.qcprImproveDepth,
+    els.qcprImproveOther, els.qcprOtherNote
+  ].filter(Boolean).forEach(el => {
+    el.addEventListener("input", refreshMetadataAfterFormChange);
+    el.addEventListener("change", refreshMetadataAfterFormChange);
+  });
   els.startTestBtn.addEventListener("click", startTest);
   els.stopTestBtn.addEventListener("click", stopTest);
   els.downloadRawBtn.addEventListener("click", () => downloadBlob(rawVideoBlob, `${fileBase}_raw.${rawVideoExtension}`));
@@ -1368,6 +1649,8 @@ function initEvents() {
 
 async function init() {
   initEvents();
+  updateQcprVisibility();
+  updateStartTestButtonLabel();
   await refreshCameras();
   els.timerDisplay.textContent = formatTime(Number(els.durationSec.value || 120));
   setStatus(els.qualityCard, els.qualityStatus, "待機", "");

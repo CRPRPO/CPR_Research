@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.7</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v227" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.8</title>
+  <link rel="stylesheet" href="style.css?v=20260829-v228" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.7</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.8</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -46,6 +46,14 @@
         </label>
 
         <label class="field">
+          <span>準備倒數</span>
+          <select id="prepCountdownSec">
+            <option value="0" selected>0 秒｜立即開始錄影</option>
+            <option value="10">10 秒｜就定位後開始</option>
+          </select>
+        </label>
+
+        <label class="field">
           <span>攝影機來源</span>
           <select id="cameraSelect">
             <option value="">尚未讀取攝影機</option>
@@ -71,6 +79,48 @@
           </select>
         </label>
 
+        <section class="optional-card" aria-labelledby="qcprHeading">
+          <div class="optional-card-head">
+            <div>
+              <strong id="qcprHeading">QCPR 結果（選填）</strong>
+              <p>30 秒系統測試可不填；若有 QCPR，可在錄影完成後輸入，metadata / ZIP 會自動更新。</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>本次是否有 QCPR 結果</span>
+            <select id="qcprAvailable">
+              <option value="no" selected>無 QCPR 資料</option>
+              <option value="yes">有 QCPR 資料</option>
+            </select>
+          </label>
+
+          <div id="qcprFields" class="qcpr-fields" hidden>
+            <div class="qcpr-grid">
+              <label class="field"><span>QCPR 總分</span><input id="qcprScore" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="例如 99" /></label>
+              <label class="field"><span>按壓總數</span><input id="qcprCompressionCount" type="number" min="0" step="1" inputmode="numeric" placeholder="例如 222" /></label>
+              <label class="field"><span>平均深度 mm</span><input id="qcprMeanDepthMm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="例如 62" /></label>
+              <label class="field"><span>適當深度 %</span><input id="qcprAdequateDepthPct" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例如 100" /></label>
+              <label class="field"><span>適當回彈 %</span><input id="qcprAdequateRecoilPct" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例如 78" /></label>
+              <label class="field"><span>平均頻率 /min</span><input id="qcprMeanRateCpm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="例如 112" /></label>
+              <label class="field"><span>按壓比例 CCF %</span><input id="qcprCompressionFractionPct" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="例如 100" /></label>
+              <label class="field"><span>最久暫停 秒</span><input id="qcprLongestPauseSec" type="number" min="0" step="0.1" inputmode="decimal" placeholder="例如 4" /></label>
+            </div>
+
+            <fieldset class="qcpr-flags">
+              <legend>QCPR 改善建議（可複選）</legend>
+              <label><input id="qcprImproveRecoil" type="checkbox" value="recoil" /> 回彈</label>
+              <label><input id="qcprImproveRate" type="checkbox" value="rate" /> 頻率</label>
+              <label><input id="qcprImproveDepth" type="checkbox" value="depth" /> 深度</label>
+              <label><input id="qcprImproveOther" type="checkbox" value="other" /> 其他</label>
+            </fieldset>
+            <label class="field">
+              <span>其他改善建議</span>
+              <input id="qcprOtherNote" type="text" maxlength="200" placeholder="可留空" />
+            </label>
+          </div>
+        </section>
+
         <div class="info-box">
           <strong>目前固定設定</strong>
           <p>解析度 640×480、30fps、MediaPipe Full、audio:false。影像位移 px 會記錄，但不顯示深度判斷。</p>
@@ -92,7 +142,7 @@
         <div class="control-row">
           <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
           <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
-          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 10秒倒數後錄影</button>
+          <button id="startTestBtn" class="danger-btn" type="button" disabled>開始測試 / 立即錄影</button>
           <button id="stopTestBtn" class="secondary-btn" type="button" disabled>停止測試</button>
         </div>
 
@@ -127,7 +177,7 @@
 
         <div class="info-box compact monitor-hint">
           <strong>提醒</strong>
-          <p>手機版建議採直式畫面；電腦搭配外接鏡頭建議橫式構圖。倒數 10 秒期間不錄影、不記錄資料。</p>
+          <p>手機與平板會優先提供後鏡頭（Back Camera）選項，但仍可手動選擇其他鏡頭。準備倒數可選 0 或 10 秒；倒數期間不錄影、不記錄研究資料。</p>
         </div>
 
         <div class="download-panel">
@@ -146,6 +196,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260821-v227"></script>
+  <script type="module" src="live.js?v=20260829-v228"></script>
 </body>
 </html>

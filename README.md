@@ -1,5 +1,44 @@
-# CPR Research System V2.3.4.2
+# CPR Research System — Mode 1 V2.2.8 / Mode 2 V2.3.4.2
 
+## Mode 1 V2.2.8：Data Logging Patch
+
+本版以 V2.2.7 的模式一為基礎，**不修改姿勢辨識核心**，只補強新一輪平板 / 手機 / QCPR pilot 所需的操作與資料紀錄。模式二 V2.3.4.2 原封保留。
+
+### V2.2.8 新增
+
+- 準備倒數改為可選 `0 秒 / 10 秒`，預設 `0 秒` 立即錄影。
+- 手機與平板新增 `★ 自動：後鏡頭優先 (Back Camera)` 預設入口；仍保留裝置 enumerateDevices() 可列出的所有攝影機供手動選擇。
+- `metadata.json` 新增 `display.mirror_display`、viewport / screen / orientation / devicePixelRatio 等顯示環境資訊。
+- `metadata.json` 新增 camera facing mode 與 mobile/tablet 判定資訊。
+- `metadata.json` 新增 timing 區塊：camera ready、first pose、record request、record start、first recorded landmark 等時間差，供 0 秒與 10 秒 warm-up 比較。
+- `landmarks.csv` 保留原本 `elapsed_sec` 行為，另新增：
+  - `video_time_sec_observed`
+  - `frame_observed_elapsed_sec`
+  - `detection_start_elapsed_sec`
+  - `detection_end_elapsed_sec`
+  - `result_logged_elapsed_sec`
+  供後續 latency diagnosis，不改寫既有欄位。
+- QCPR 結果為**完全選填**；若無 QCPR，只記錄 `qcpr.available=false`。
+- 若有 QCPR，可在錄影完成後手動輸入總分、按壓總數、平均深度、適當深度%、適當回彈%、平均頻率、按壓比例/CCF%、最久暫停時間與改善建議。輸入後 metadata 與 ZIP 內容會自動更新。
+
+### V2.2.8 明確不修改
+
+- MediaPipe Tasks Vision 版本與 Pose Landmarker Full 模型。
+- 640×480 / 30fps 的既有主要研究設定。
+- tracked side 選擇邏輯。
+- `JUMP_THRESHOLD_PX = 25`。
+- elbow / alignment / trunk / rate 姿勢計算。
+- rolling window 判斷。
+- `DISPLAY_SMOOTH_ALPHA = 0.34`。
+- 原始影片與 CSV 分離保存的架構。
+
+### QCPR 欄位說明
+
+QCPR 屬於外部 CPR performance data，不視為姿勢 Ground Truth。30 秒系統測試可以完全不填；2 分鐘搭配 QCPR 的測試再輸入即可。
+
+---
+
+## Mode 2 V2.3.4.2：Extended Latency Diagnostic
 ## 版本目的
 
 V2.3.4.2 以已通過實際測試的 V2.3.4.1 為基礎。使用者在多支真實 CPR 錄影中觀察到 Raw landmark 即使不使用 EMA 仍落後人體動作，且兩支初步測試影片的最佳視覺補償已達 `+3 Frame` 或略高於 `+3 Frame`。因此本版只擴充 **Extended Latency Diagnostic**，不修改既有回播、同步或骨架計算核心。
