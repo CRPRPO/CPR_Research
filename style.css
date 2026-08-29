@@ -1182,3 +1182,195 @@ input:focus, select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* V2.2.8.1: Bilateral Diagnostic Display — tablet-first monitor workspace. */
+.monitor-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 330px);
+  gap: 12px;
+  align-items: start;
+}
+
+.live-diagnostics {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.live-diagnostics .inline-status-panel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0;
+}
+
+.live-diagnostics .metric-card {
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.live-diagnostics .metric-card span {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.live-diagnostics .metric-card strong {
+  font-size: 18px;
+}
+
+.bilateral-panel {
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(96, 165, 250, 0.28);
+}
+
+.bilateral-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.bilateral-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.bilateral-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.research-badge,
+.primary-side-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.research-badge {
+  color: #bfdbfe;
+  background: rgba(37, 99, 235, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+}
+
+.primary-side-badge {
+  color: #bbf7d0;
+  background: rgba(22, 163, 74, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.38);
+}
+
+.bilateral-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.arm-diagnostic {
+  min-width: 0;
+  border-radius: 13px;
+  padding: 10px;
+  background: rgba(2, 6, 23, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.arm-diagnostic.ok { border-color: rgba(22, 163, 74, 0.55); }
+.arm-diagnostic.warn { border-color: rgba(245, 158, 11, 0.62); }
+.arm-diagnostic.bad { border-color: rgba(220, 38, 38, 0.62); }
+
+.arm-diagnostic-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.arm-diagnostic-title > strong {
+  font-size: 14px;
+}
+
+.arm-diagnostic dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.arm-diagnostic dl > div {
+  display: grid;
+  grid-template-columns: minmax(58px, 0.9fr) minmax(0, 1.1fr);
+  gap: 5px;
+  align-items: baseline;
+}
+
+.arm-diagnostic dt,
+.arm-diagnostic dd {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.arm-diagnostic dt { color: var(--muted); }
+.arm-diagnostic dd {
+  color: #e2e8f0;
+  font-weight: 850;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Desktop / tablet: keep video and live judgement in the same primary viewport. */
+@media (max-width: 1180px) and (min-width: 721px) {
+  .video-column {
+    width: 100%;
+  }
+  .monitor-workspace {
+    grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.85fr);
+  }
+  .operation-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tablet portrait can still keep a compact side-by-side monitor. */
+@media (max-width: 860px) and (min-width: 721px) {
+  .monitor-workspace {
+    grid-template-columns: minmax(0, 1.45fr) minmax(250px, 0.85fr);
+    gap: 10px;
+  }
+  .bilateral-grid {
+    grid-template-columns: 1fr;
+  }
+  .live-diagnostics .metric-card {
+    padding: 9px;
+  }
+  .live-diagnostics .metric-card strong {
+    font-size: 16px;
+  }
+}
+
+/* Phone fallback: stack video and diagnostics; tablet layout remains the priority. */
+@media (max-width: 720px) {
+  .monitor-workspace {
+    grid-template-columns: 1fr;
+  }
+  .bilateral-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bilateral-panel {
+    padding: 10px;
+  }
+  .bilateral-head p {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 430px) {
+  .bilateral-grid {
+    grid-template-columns: 1fr;
+  }
+}

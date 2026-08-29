@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>即時測試 / 錄影模式｜CPR Research System V2.2.8</title>
-  <link rel="stylesheet" href="style.css?v=20260829-v228" />
+  <title>即時測試 / 錄影模式｜CPR Research System V2.2.8.1</title>
+  <link rel="stylesheet" href="style.css?v=20260829-v2281" />
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式一｜CPR Research System V2.2.8</p>
+        <p class="eyebrow">模式一｜CPR Research System V2.2.8.1</p>
         <h1>即時測試 / 錄影模式</h1>
       </div>
       <div class="version-pill">640×480 / 30fps / Full</div>
@@ -128,17 +128,88 @@
       </aside>
 
       <section class="video-column">
-        <div class="video-card video-landscape" id="videoCard">
-          <video id="video" playsinline muted></video>
-          <canvas id="overlayCanvas" width="640" height="480"></canvas>
-          <div class="video-overlay top-left" id="recordStatus">待機</div>
-          <div class="video-overlay top-right" id="timerDisplay">00:00</div>
-          <div class="video-overlay bottom-left" id="sessionDisplay">尚未開始</div>
+        <div class="monitor-workspace">
+          <div class="video-card video-landscape" id="videoCard">
+            <video id="video" playsinline muted></video>
+            <canvas id="overlayCanvas" width="640" height="480"></canvas>
+            <div class="video-overlay top-left" id="recordStatus">待機</div>
+            <div class="video-overlay top-right" id="timerDisplay">00:00</div>
+            <div class="video-overlay bottom-left" id="sessionDisplay">尚未開始</div>
+          </div>
+
+          <div class="live-diagnostics">
+            <section class="status-panel inline-status-panel" aria-label="主要即時判斷">
+              <div class="metric-card" id="qualityCard">
+                <span>偵測品質</span>
+                <strong id="qualityStatus">待機</strong>
+              </div>
+              <div class="metric-card" id="sideCard">
+                <span>分析手臂</span>
+                <strong id="sideStatus">待機</strong>
+              </div>
+              <div class="metric-card" id="elbowCard">
+                <span>手肘</span>
+                <strong id="elbowStatus">待機</strong>
+              </div>
+              <div class="metric-card" id="alignmentCard">
+                <span>肩腕對齊</span>
+                <strong id="alignmentStatus">待機</strong>
+              </div>
+              <div class="metric-card" id="trunkCard">
+                <span>軀幹參與</span>
+                <strong id="trunkStatus">待機</strong>
+              </div>
+              <div class="metric-card" id="rateCard">
+                <span>按壓速率</span>
+                <strong id="rateStatus">估算中</strong>
+              </div>
+            </section>
+
+            <section class="bilateral-panel" aria-labelledby="bilateralHeading">
+              <div class="bilateral-head">
+                <div>
+                  <h2 id="bilateralHeading">左右手即時診斷</h2>
+                  <p>研究用原始診斷；沿用現行門檻，尚未套用遮蔽／不可判讀 Quality Gate。</p>
+                </div>
+                <span class="research-badge">Research</span>
+              </div>
+
+              <div class="bilateral-grid">
+                <article class="arm-diagnostic" id="leftArmDiagnostic">
+                  <div class="arm-diagnostic-title">
+                    <strong>左手臂</strong>
+                    <span id="leftPrimaryBadge" class="primary-side-badge" hidden>主要分析側</span>
+                  </div>
+                  <dl>
+                    <div><dt>肘角</dt><dd id="leftElbowAngle">—</dd></div>
+                    <div><dt>肘部</dt><dd id="leftElbowState">待機</dd></div>
+                    <div><dt>肩腕</dt><dd id="leftAlignmentState">待機</dd></div>
+                    <div><dt>最低 Vis</dt><dd id="leftVisibility">—</dd></div>
+                    <div><dt>本幀 Jump</dt><dd id="leftJump">—</dd></div>
+                  </dl>
+                </article>
+
+                <article class="arm-diagnostic" id="rightArmDiagnostic">
+                  <div class="arm-diagnostic-title">
+                    <strong>右手臂</strong>
+                    <span id="rightPrimaryBadge" class="primary-side-badge" hidden>主要分析側</span>
+                  </div>
+                  <dl>
+                    <div><dt>肘角</dt><dd id="rightElbowAngle">—</dd></div>
+                    <div><dt>肘部</dt><dd id="rightElbowState">待機</dd></div>
+                    <div><dt>肩腕</dt><dd id="rightAlignmentState">待機</dd></div>
+                    <div><dt>最低 Vis</dt><dd id="rightVisibility">—</dd></div>
+                    <div><dt>本幀 Jump</dt><dd id="rightJump">—</dd></div>
+                  </dl>
+                </article>
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
       <aside class="panel operation-panel">
-        <h2>現場操作與即時狀態</h2>
+        <h2>現場操作</h2>
         <div class="control-row">
           <button id="startCameraBtn" class="primary-btn" type="button">開啟攝影機與模型</button>
           <button id="stopCameraBtn" class="secondary-btn" type="button" disabled>停止攝影機</button>
@@ -147,33 +218,6 @@
         </div>
 
         <div class="status-line" id="systemMessage">請先重新整理攝影機清單，選擇鏡頭後開啟攝影機。</div>
-
-        <section class="status-panel inline-status-panel">
-          <div class="metric-card" id="qualityCard">
-            <span>偵測品質</span>
-            <strong id="qualityStatus">待機</strong>
-          </div>
-          <div class="metric-card" id="sideCard">
-            <span>分析手臂</span>
-            <strong id="sideStatus">待機</strong>
-          </div>
-          <div class="metric-card" id="elbowCard">
-            <span>手肘</span>
-            <strong id="elbowStatus">待機</strong>
-          </div>
-          <div class="metric-card" id="alignmentCard">
-            <span>肩腕對齊</span>
-            <strong id="alignmentStatus">待機</strong>
-          </div>
-          <div class="metric-card" id="trunkCard">
-            <span>軀幹參與</span>
-            <strong id="trunkStatus">待機</strong>
-          </div>
-          <div class="metric-card" id="rateCard">
-            <span>按壓速率</span>
-            <strong id="rateStatus">估算中</strong>
-          </div>
-        </section>
 
         <div class="info-box compact monitor-hint">
           <strong>提醒</strong>
@@ -196,6 +240,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="live.js?v=20260829-v228"></script>
+  <script type="module" src="live.js?v=20260829-v2281"></script>
 </body>
 </html>

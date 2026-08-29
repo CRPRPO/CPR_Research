@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CPR Research System｜模式一 V2.2.8 / 模式二 V2.3.4.2</title>
-  <link rel="stylesheet" href="style.css?v=20260829-v228" />
+  <title>CPR Research System｜模式一 V2.2.8.1 / 模式二 V2.3.4.2</title>
+  <link rel="stylesheet" href="style.css?v=20260829-v2281" />
 </head>
 <body>
   <main class="home-shell">
     <section class="hero-card">
-      <p class="eyebrow">CPR Research System｜模式一 V2.2.8 · 模式二 V2.3.4.2</p>
+      <p class="eyebrow">CPR Research System｜模式一 V2.2.8.1 · 模式二 V2.3.4.2</p>
       <h1>CPR 姿勢即時偵測與研究資料紀錄系統</h1>
       <p class="hero-text">
         本系統採用 640×480 / 30fps 與 MediaPipe Pose Landmarker Full 作為主要分析設定。
-        模式一更新為 V2.2.8 資料紀錄強化版：保留 V2.2.7 的姿勢辨識核心，新增 0/10 秒準備倒數、手機/平板後鏡頭優先、QCPR 選填紀錄、mirror/orientation 與更完整 timing log；模式二維持 V2.3.4.2 Extended Latency Diagnostic。
+        模式一更新為 V2.2.8.1 Bilateral Diagnostic Display：保留 V2.2.8 的錄影、姿勢判斷與資料紀錄核心，新增左右手研究用即時診斷，並將影片與判斷集中在同一主要視區；模式二維持 V2.3.4.2 Extended Latency Diagnostic。
       </p>
     </section>
 
@@ -21,7 +21,7 @@
       <a class="mode-card active" href="live.html">
         <span class="mode-badge">模式一</span>
         <h2>即時測試 / 錄影模式</h2>
-        <p>V2.2.8：保留原有即時偵測與錄影核心，新增 0 秒預設立即錄影、10 秒可選倒數、手機/平板後鏡頭優先、QCPR 選填紀錄及 timing / mirror / orientation metadata。</p>
+        <p>V2.2.8.1：保留 V2.2.8 核心與資料格式，新增左右手肘角、現行門檻狀態、肩腕狀態、visibility、jump 與主要分析側即時顯示；平板直/橫式優先讓影片與判斷同屏。</p>
         <strong>開始使用 →</strong>
       </a>
 
@@ -43,7 +43,7 @@
     <section class="note-card">
       <h2>目前版本重點</h2>
       <ul>
-        <li>模式一 V2.2.8 僅強化資料記錄與操作設定，不修改 MediaPipe 模型、姿勢計算門檻、jump threshold、rolling window 或 EMA 係數。</li>
+        <li>模式一 V2.2.8.1 僅新增 Bilateral Diagnostic Display 與平板監看版面；MediaPipe 模型、原本主要判斷、姿勢門檻、jump threshold、CSV/metadata schema、rolling window 與 EMA 係數均不改。</li>
         <li>模式一準備倒數預設 0 秒，可改 10 秒；QCPR 完全選填，30 秒系統測試可留空。</li>
         <li>手機/平板新增「後鏡頭優先」預設入口，同時保留裝置能列出的其他攝影機供手動選擇。</li>
         <li>模式二影片與 CSV 都只在瀏覽器本機讀取，不需上傳。</li>

@@ -1,4 +1,35 @@
-# CPR Research System — Mode 1 V2.2.8 / Mode 2 V2.3.4.2
+# CPR Research System — Mode 1 V2.2.8.1 / Mode 2 V2.3.4.2
+
+
+## Mode 1 V2.2.8.1：Bilateral Diagnostic Display
+
+本版以 V2.2.8 Data Logging Patch 為基礎，僅新增研究用左右手即時診斷與平板監看版面。既有主要 tracked-side 判斷仍維持原樣。
+
+### V2.2.8.1 新增
+
+- 影片與「主要即時判斷」集中在同一 monitor workspace，平板直式／橫式優先，不需先捲過測試設定才能看到判斷。
+- 手機／平板的攝影要求會依當下畫面方向切換：直式優先請求 480×640、橫式維持 640×480；實際輸出仍以瀏覽器與攝影機支援結果為準。
+- 保留 V2.2.7/V2.2.8 錄影畫面左下角的 `file_base` / session 檔名顯示。
+- 新增左右手獨立研究診斷：
+  - 當下肘角度。
+  - 依既有 3 秒 rolling 規則顯示 `穩定 / 觀察中 / 可能彎曲 / 偵測不穩`。
+  - 依既有 shoulder-wrist offset 門檻顯示 `良好 / 觀察中 / 偏移 / 偵測不穩`。
+  - 最低 visibility。
+  - 本 frame shoulder/elbow/wrist/hip 的 jump 數量。
+  - 標示目前 tracked side 為「主要分析側」。
+- 左右手診斷明確標示為 Research display；尚未套用後續遮蔽／不可判讀 Quality Gate，因此不改寫正式回饋邏輯。
+
+### V2.2.8.1 明確不修改
+
+- V2.2.8 的錄影流程、0/10 秒倒數、後鏡頭優先與 QCPR 選填；僅將既有手機直式判定擴充為手機／平板依實際方向請求直式或橫式畫面。
+- MediaPipe 模型與 confidence。
+- 原本 tracked-side 主判斷。
+- 原本 elbow / alignment / trunk / rate 主回饋。
+- `JUMP_THRESHOLD_PX = 25`、`DISPLAY_SMOOTH_ALPHA = 0.34`。
+- landmarks.csv / posture_metrics.csv / metadata.json 欄位結構。
+- Mode 2 V2.3.4.2。
+
+---
 
 ## Mode 1 V2.2.8：Data Logging Patch
 

@@ -1,6 +1,6 @@
 import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-const APP_VERSION = "CPR Research System V2.2.8";
+const APP_VERSION = "CPR Research System V2.2.8.1";
 const TASKS_VERSION = "@mediapipe/tasks-vision@0.10.35";
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 const FULL_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
@@ -85,6 +85,20 @@ const els = {
   alignmentCard: document.getElementById("alignmentCard"),
   trunkCard: document.getElementById("trunkCard"),
   rateCard: document.getElementById("rateCard"),
+  leftArmDiagnostic: document.getElementById("leftArmDiagnostic"),
+  rightArmDiagnostic: document.getElementById("rightArmDiagnostic"),
+  leftPrimaryBadge: document.getElementById("leftPrimaryBadge"),
+  rightPrimaryBadge: document.getElementById("rightPrimaryBadge"),
+  leftElbowAngle: document.getElementById("leftElbowAngle"),
+  rightElbowAngle: document.getElementById("rightElbowAngle"),
+  leftElbowState: document.getElementById("leftElbowState"),
+  rightElbowState: document.getElementById("rightElbowState"),
+  leftAlignmentState: document.getElementById("leftAlignmentState"),
+  rightAlignmentState: document.getElementById("rightAlignmentState"),
+  leftVisibility: document.getElementById("leftVisibility"),
+  rightVisibility: document.getElementById("rightVisibility"),
+  leftJump: document.getElementById("leftJump"),
+  rightJump: document.getElementById("rightJump"),
   downloadRawBtn: document.getElementById("downloadRawBtn"),
   downloadLandmarksBtn: document.getElementById("downloadLandmarksBtn"),
   downloadMetricsBtn: document.getElementById("downloadMetricsBtn"),
@@ -144,6 +158,8 @@ let frameIntervalValues = [];
 let poseFpsValues = [];
 let signalWindow = [];
 let elbowAngleWindow = [];
+let leftDiagnosticElbowWindow = [];
+let rightDiagnosticElbowWindow = [];
 let shoulderYWindow = [];
 let hipYWindow = [];
 let currentMetrics = makeEmptyMetrics();
@@ -534,11 +550,102 @@ function sideMetricSnapshot(pointMap, side) {
   };
 }
 
+function computeSideDiagnostic(pointMap, side, now, window) {
+  const S = pointMap[`${side}_shoulder`];
+  const E = pointMap[`${side}_elbow`];
+  const W = pointMap[`${side}_wrist`];
+  const H = pointMap[`${side}_hip`];
+  const snapshot = sideMetricSnapshot(pointMap, side);
+  const elbowAngle = Number(snapshot.elbowAngleDeg);
+  const minVis = Number(snapshot.minVisibility);
+  const currentJumpCount = [S, E, W, H].filter(p => p?.jump === 1).length;
+
+  updateRolling(window, { t: now, v: elbowAngle }, 3.0);
+  const elbowValues = window.map(o => o.v).filter(Number.isFinite);
+  const elbowMean = mean(elbowValues);
+  const elbowSd = sd(elbowValues);
+
+  let elbowStatus = "偵測不穩";
+  let elbowLevel = "warn";
+  if (minVis >= QUALITY_MIN_VISIBILITY && Number.isFinite(elbowAngle)) {
+    if (elbowMean >= 165 && (!Number.isFinite(elbowSd) || elbowSd <= 12)) {
+      elbowStatus = "穩定";
+      elbowLevel = "ok";
+    } else if (elbowMean < 160 || (Number.isFinite(elbowSd) && elbowSd > 18)) {
+      elbowStatus = "可能彎曲";
+      elbowLevel = "bad";
+    } else {
+      elbowStatus = "觀察中";
+      elbowLevel = "warn";
+    }
+  }
+
+  let alignmentStatus = "偵測不穩";
+  let alignmentLevel = "warn";
+  const shoulderWristOffsetNorm = Number(snapshot.shoulderWristOffsetNorm);
+  if (minVis >= QUALITY_MIN_VISIBILITY && Number.isFinite(shoulderWristOffsetNorm)) {
+    if (shoulderWristOffsetNorm <= 0.28) {
+      alignmentStatus = "良好";
+      alignmentLevel = "ok";
+    } else if (shoulderWristOffsetNorm >= 0.40) {
+      alignmentStatus = "偏移";
+      alignmentLevel = "bad";
+    } else {
+      alignmentStatus = "觀察中";
+      alignmentLevel = "warn";
+    }
+  }
+
+  return {
+    elbowAngleDeg: Number.isFinite(elbowAngle) ? elbowAngle : "",
+    elbowStatus,
+    elbowLevel,
+    alignmentStatus,
+    alignmentLevel,
+    minVisibility: Number.isFinite(minVis) ? minVis : "",
+    currentJumpCount
+  };
+}
+
+function setDiagnosticLevel(card, level) {
+  if (!card) return;
+  card.classList.remove("ok", "warn", "bad");
+  if (level) card.classList.add(level);
+}
+
+function updateBilateralDiagnosticDisplay(leftDiagnostic, rightDiagnostic, trackedSide) {
+  const formatAngle = value => Number.isFinite(value) ? `${value.toFixed(1)}°` : "—";
+  const formatVis = value => Number.isFinite(value) ? value.toFixed(2) : "—";
+  const formatJump = value => Number.isFinite(value) ? String(value) : "—";
+
+  if (els.leftElbowAngle) els.leftElbowAngle.textContent = formatAngle(leftDiagnostic.elbowAngleDeg);
+  if (els.rightElbowAngle) els.rightElbowAngle.textContent = formatAngle(rightDiagnostic.elbowAngleDeg);
+  if (els.leftElbowState) els.leftElbowState.textContent = leftDiagnostic.elbowStatus;
+  if (els.rightElbowState) els.rightElbowState.textContent = rightDiagnostic.elbowStatus;
+  if (els.leftAlignmentState) els.leftAlignmentState.textContent = leftDiagnostic.alignmentStatus;
+  if (els.rightAlignmentState) els.rightAlignmentState.textContent = rightDiagnostic.alignmentStatus;
+  if (els.leftVisibility) els.leftVisibility.textContent = formatVis(leftDiagnostic.minVisibility);
+  if (els.rightVisibility) els.rightVisibility.textContent = formatVis(rightDiagnostic.minVisibility);
+  if (els.leftJump) els.leftJump.textContent = formatJump(leftDiagnostic.currentJumpCount);
+  if (els.rightJump) els.rightJump.textContent = formatJump(rightDiagnostic.currentJumpCount);
+
+  const leftLevel = leftDiagnostic.elbowLevel;
+  const rightLevel = rightDiagnostic.elbowLevel;
+  setDiagnosticLevel(els.leftArmDiagnostic, leftLevel);
+  setDiagnosticLevel(els.rightArmDiagnostic, rightLevel);
+
+  if (els.leftPrimaryBadge) els.leftPrimaryBadge.hidden = trackedSide !== "left";
+  if (els.rightPrimaryBadge) els.rightPrimaryBadge.hidden = trackedSide !== "right";
+}
+
 function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
   const trackedSide = getSelectedSide(pointMap);
   const trackedSideReason = getTrackedSideReason(pointMap, trackedSide);
   const leftSnapshot = sideMetricSnapshot(pointMap, "left");
   const rightSnapshot = sideMetricSnapshot(pointMap, "right");
+  const diagnosticNow = isRecording ? elapsedSec : performance.now() / 1000;
+  const leftDiagnostic = computeSideDiagnostic(pointMap, "left", diagnosticNow, leftDiagnosticElbowWindow);
+  const rightDiagnostic = computeSideDiagnostic(pointMap, "right", diagnosticNow, rightDiagnosticElbowWindow);
   const S = pointMap[`${trackedSide}_shoulder`];
   const E = pointMap[`${trackedSide}_elbow`];
   const W = pointMap[`${trackedSide}_wrist`];
@@ -695,6 +802,7 @@ function computeMetrics(pointMap, elapsedSec, detectionMs, frameIntervalMs) {
   setStatus(els.alignmentCard, els.alignmentStatus, alignmentStatus, alignmentLevel);
   setStatus(els.trunkCard, els.trunkStatus, trunkStatus, trunkLevel);
   setStatus(els.rateCard, els.rateStatus, rateStatus, rateLevel);
+  updateBilateralDiagnosticDisplay(leftDiagnostic, rightDiagnostic, trackedSide);
 
   return currentMetrics;
 }
@@ -1090,7 +1198,7 @@ async function refreshCameras() {
 
 
 function shouldRequestPortraitCamera() {
-  return window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches;
+  return isMobileOrTabletDevice() && window.matchMedia("(orientation: portrait)").matches;
 }
 
 function applyVideoCardAspect(width, height) {
@@ -1354,6 +1462,8 @@ function beginRecordingSession() {
   poseFpsValues = [];
   signalWindow = [];
   elbowAngleWindow = [];
+  leftDiagnosticElbowWindow = [];
+  rightDiagnosticElbowWindow = [];
   shoulderYWindow = [];
   hipYWindow = [];
   recordedChunks = [];
