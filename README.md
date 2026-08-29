@@ -1,8 +1,10 @@
-# CPR Research System V2.3.4.1
+# CPR Research System V2.3.4.2
 
 ## 版本目的
 
-V2.3.4.1 以已通過實際測試的 V2.3.4 為基礎，完整保留：
+V2.3.4.2 以已通過實際測試的 V2.3.4.1 為基礎。使用者在多支真實 CPR 錄影中觀察到 Raw landmark 即使不使用 EMA 仍落後人體動作，且兩支初步測試影片的最佳視覺補償已達 `+3 Frame` 或略高於 `+3 Frame`。因此本版只擴充 **Extended Latency Diagnostic**，不修改既有回播、同步或骨架計算核心。
+
+完整保留：
 
 - 本機影片回播。
 - landmarks.csv 結構驗證。
@@ -10,90 +12,75 @@ V2.3.4.1 以已通過實際測試的 V2.3.4 為基礎，完整保留：
 - Raw CSV landmark Canvas overlay。
 - V2.2.7 顯示係數 `DISPLAY_SMOOTH_ALPHA = 0.34` 的 Live EMA 模擬。
 - 原始方向 / 左右鏡像比較。
+- 0.25× / 0.5× / 1× 快速播放。
+- 前一格 / 下一格相鄰 landmark 資料列步進。
+- 原始同步 A / 補償同步 B 快速比較。
 
-本版只新增 **Playback & Landmark Latency Diagnostic**，用來量化「Raw landmark 看起來跟在人體動作後面」的現象。
+## V2.3.4.2 新增內容
 
-## 新增診斷功能
+### 1. 延伸 Landmark 補償範圍
 
-### 1. 明顯的快速播放速度
+診斷範圍由 V2.3.4.1 的 `-1～+3 Frame` 擴充為：
 
-影片旁新增：
+- 最小：`-2 Frame`
+- 最大：`+8 Frame`
 
-- 0.25×
-- 0.5×
-- 1×
+補償仍只改變 Canvas「顯示哪一筆 CSV landmark」，不改變影片時間、不修改 CSV，也不改寫 V2.3.2 的原始同步驗證。
 
-原本左側播放速度下拉選單仍保留，兩者會同步。
+### 2. ±1 Frame 緊湊微調
 
-### 2. 前一格 / 下一格
+補償區新增：
 
-若已載入通過驗證的 landmarks.csv，按鈕會把影片跳到相鄰的 `elapsed_sec` 資料列；若只有影片，才以約 1/30 秒移動。
+- `−1`：目前補償減少一格。
+- 中央顯示：目前選定 Frame 與依 CSV 中位 frame interval 換算的約略毫秒。
+- `+1`：目前補償增加一格。
 
-這是診斷用時間步進，不宣稱等同影片編碼器內部的精確 video frame。
+因此可逐格選到所有 `-2～+8` 整數 Frame，包括快速按鈕沒有直接列出的 `-2、-1、+5、+7`。到達邊界後相應的 `−1 / +1` 按鈕會停用，避免超出設計範圍。
 
-### 3. Landmark Frame 顯示補償
+### 3. 快速選擇級距
 
-可選：
+為避免一次橫排 11 顆大按鈕造成 UI 過長，本版只保留常用快速跳轉：
 
-- -1 Frame
-- 0 Frame
-- +1 Frame
-- +2 Frame
-- +3 Frame
+- `0`
+- `+1`
+- `+2`
+- `+3`
+- `+4`
+- `+6`
+- `+8`
 
-定義：
+研究者可先快速找到大致範圍，再用 `−1 / +1` 精細調整。
 
-- `0 Frame`：維持 V2.3.2 原始同步，影片 currentTime 對應最近的 elapsed_sec。
-- `+1 Frame`：影片時間不動，但改畫 CSV 的下一筆 landmark。
-- `+2 / +3 Frame`：依序使用再往後 2 / 3 筆 landmark。
-- `-1 Frame`：使用前一筆 landmark，作為反向對照。
+### 4. A / B 比較維持不變
 
-補償只影響 **Canvas 顯示哪一筆 landmark**，不會：
+例如選定 `+5 Frame` 後：
 
-- 修改 landmarks.csv。
-- 修改 raw.webm。
-- 改動 V2.3.2 同步驗證結果。
-- 將補償值寫回任何研究資料。
+- 原始同步 A：顯示 `0 Frame`。
+- 補償同步 B：顯示 `+5 Frame`。
 
-### 4. A / B 快速比較
-
-先選定補償量，例如 `+1 Frame`，再反覆切換：
-
-- 原始同步 A：固定顯示 0 Frame。
-- 補償同步 B：顯示目前選定的補償量。
-
-用來降低「一直重選下拉選單」造成的主觀比較困難。
-
-### 5. 診斷資訊
-
-系統會顯示：
-
-- 原始對應 Frame。
-- 選定補償。
-- 目前真正畫出的 Frame。
-- 目前真正畫出的 elapsed_sec。
-- 依 CSV 中位 frame interval 換算的約略補償毫秒。
-- 原始 Frame 與顯示 Frame 之間實際 elapsed_sec 位移。
-
-因此研究者可以知道程式實際做了什麼，而不是只靠畫面感覺猜測。
+可反覆切換，不必重選補償值。
 
 ## 建議測試方式
 
 使用同一組 `*_raw.webm` + `*_landmarks.csv`：
 
-1. 骨架顯示模式先選 `Raw CSV`。
-2. 播放速度設 0.25×。
-3. 先使用 `0 Frame`，確認先前觀察到的 Raw landmark 延遲。
-4. 依序試 `+1 / +2 / +3 Frame`，觀察哪一個最貼近人體快速上下動作。
-5. 找到候選值後，用「原始同步 A / 補償同步 B」反覆切換。
-6. 換數支影片重複測試，不以單一影片直接決定固定補償值。
-7. `-1 Frame` 可作反向控制；若 -1 更差、+1 更好，可支持延遲方向的判讀。
+1. 骨架先選 `Raw CSV`，避免 EMA 影響判讀。
+2. 播放速度設為 `0.25×`。
+3. 先看 `0 Frame`。
+4. 快速試 `+1、+2、+3、+4`。
+5. 若 `+4` 仍落後，可直接試 `+6` 或 `+8`，再用 `−1 / +1` 回頭微調。
+6. 找到候選值後，用 A / B 反覆比較。
+7. 每支影片記錄最佳 Frame 補償與畫面顯示的「實際時間位移 ms」。
+8. 建議至少測 5～10 支影片後再判斷是否存在穩定的系統性延遲。
 
 ## 研究解讀限制
 
-本功能目前屬 **Latency Diagnostic**，不是正式校正。即使某支影片在 +1 Frame 最貼合，也不能直接把所有研究影片固定補償 +1 Frame。必須先確認不同影片、不同裝置與不同錄影條件下是否存在一致的系統性延遲。
+本功能仍為 **Latency Diagnostic**，不是正式校正。即使某批影片集中在 +3～+5 Frame，也不能直接把所有研究資料固定套用同一補償值。若不同影片差異大，後續應從模式一的 frame timestamp / detection timing 架構處理，而不是事後以單一 offset 強制修正。
 
-目前已知 V2.2.7 的 landmarks.csv 是在 MediaPipe 偵測結果產生後記錄 `elapsed_sec`，而單次 `detection_ms` 約可達數十毫秒，因此 Raw landmark 視覺落後可能包含 inference / timestamp latency。後續回頭修改模式一時，應保存更明確的 frame / detection timing；另需在 metadata 新增 `mirrorDisplay`。
+目前已知後續模式一資料紀錄應補強：
+
+- `mirrorDisplay`（或等價欄位），記錄當時螢幕是否使用左右鏡像顯示。
+- 更清楚的 frame / detection timing，例如 frame capture / detection start / detection end / detection_ms 等時間資訊，以利區分影像取得、MediaPipe inference 與畫面呈現造成的延遲。
 
 ## 鎖定範圍
 
@@ -103,12 +90,12 @@ V2.3.4.1 以已通過實際測試的 V2.3.4 為基礎，完整保留：
 - `live.js`
 - `analyze.html`
 
-V2.3.4.1 的變更集中於：
+V2.3.4.2 的變更集中於：
 
-- `index.html`：版本與本版功能文字。
-- `replay.html`：延遲診斷控制與資訊區。
-- `replay.js`：顯示層 frame offset、A/B、慢速與相鄰資料列步進。
-- `style.css`：診斷控制的 responsive 樣式。
+- `index.html`：版本與功能說明。
+- `replay.html`：Extended Latency Diagnostic 控制區。
+- `replay.js`：-2～+8 Frame 範圍、±1 微調與控制狀態。
+- `style.css`：較緊湊的補償控制 responsive 樣式。
 - `README.md`：版本說明。
 
 本版仍為 Local-only，不新增 `fetch` / XHR / WebSocket / 外部上傳 API，也不重新執行 MediaPipe。

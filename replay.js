@@ -1,9 +1,9 @@
 "use strict";
 
-// CPR Research System V2.3.4.1
-// Mode 2 playback + landmark latency diagnostic.
+// CPR Research System V2.3.4.2
+// Mode 2 playback + extended landmark latency diagnostic.
 // Keeps V2.3.4 Raw/EMA/mirror reconstruction and the V2.3.2 original synchronization unchanged,
-// then adds visible slow-play controls, adjacent-landmark stepping, and temporary frame-offset A/B comparison.
+// then extends visible slow-play controls, adjacent-landmark stepping, and temporary frame-offset A/B comparison to -2..+8 frames.
 // Diagnostic offsets are display-only: no CSV/video modification, no upload and no MediaPipe re-analysis.
 
 const els = {
@@ -81,6 +81,10 @@ const els = {
   latencyStepBackBtn: document.getElementById("latencyStepBackBtn"),
   latencyStepForwardBtn: document.getElementById("latencyStepForwardBtn"),
   latencyOffsetButtons: Array.from(document.querySelectorAll("[data-latency-offset]")),
+  latencyOffsetDecreaseBtn: document.getElementById("latencyOffsetDecreaseBtn"),
+  latencyOffsetIncreaseBtn: document.getElementById("latencyOffsetIncreaseBtn"),
+  latencyOffsetCurrentValue: document.getElementById("latencyOffsetCurrentValue"),
+  latencyOffsetCurrentMs: document.getElementById("latencyOffsetCurrentMs"),
   latencyOriginalBtn: document.getElementById("latencyOriginalBtn"),
   latencyCompensatedBtn: document.getElementById("latencyCompensatedBtn"),
   latencyBaseFrameValue: document.getElementById("latencyBaseFrameValue"),
@@ -99,6 +103,8 @@ let skeletonAnimationFrameId = null;
 let skeletonVideoFrameCallbackId = null;
 let selectedLatencyFrameOffset = 0;
 let latencyComparisonMode = "original";
+const MIN_LATENCY_FRAME_OFFSET = -2;
+const MAX_LATENCY_FRAME_OFFSET = 8;
 
 const skeletonCtx = els.replaySkeletonCanvas.getContext("2d");
 const DISPLAY_SMOOTH_ALPHA = 0.34;
@@ -169,6 +175,21 @@ function formatSignedFrameOffset(offset) {
   return `${offset > 0 ? "+" : ""}${offset} Frame`;
 }
 
+function clampLatencyFrameOffset(offset) {
+  if (!Number.isFinite(offset)) return 0;
+  return Math.max(MIN_LATENCY_FRAME_OFFSET, Math.min(MAX_LATENCY_FRAME_OFFSET, Math.trunc(offset)));
+}
+
+function setSelectedLatencyFrameOffset(offset, { activateCompensated = true } = {}) {
+  selectedLatencyFrameOffset = clampLatencyFrameOffset(offset);
+  if (activateCompensated) {
+    latencyComparisonMode = selectedLatencyFrameOffset === 0 ? "original" : "compensated";
+  }
+  updateLatencyDiagnosticPanel();
+  renderRawSkeletonForCurrentTime();
+  if (!els.replayVideo.paused) startSkeletonRenderLoop();
+}
+
 function getEffectiveLatencyFrameOffset() {
   return latencyComparisonMode === "compensated" ? selectedLatencyFrameOffset : 0;
 }
@@ -199,6 +220,13 @@ function updateLatencyButtonStates() {
     button.dataset.active = diagnosticReady && offset === selectedLatencyFrameOffset ? "true" : "false";
   }
 
+  els.latencyOffsetDecreaseBtn.disabled = !diagnosticReady || selectedLatencyFrameOffset <= MIN_LATENCY_FRAME_OFFSET;
+  els.latencyOffsetIncreaseBtn.disabled = !diagnosticReady || selectedLatencyFrameOffset >= MAX_LATENCY_FRAME_OFFSET;
+  els.latencyOffsetCurrentValue.textContent = formatSignedFrameOffset(selectedLatencyFrameOffset);
+  els.latencyOffsetCurrentMs.textContent = Number.isFinite(activeLandmarksData?.medianIntervalSec)
+    ? `約 ${selectedLatencyFrameOffset >= 0 ? "+" : ""}${(selectedLatencyFrameOffset * activeLandmarksData.medianIntervalSec * 1000).toFixed(1)} ms`
+    : "約 — ms";
+
   els.latencyOriginalBtn.disabled = !diagnosticReady;
   els.latencyCompensatedBtn.disabled = !diagnosticReady;
   els.latencyOriginalBtn.dataset.active = diagnosticReady && latencyComparisonMode === "original" ? "true" : "false";
@@ -212,6 +240,7 @@ function resetLatencyDiagnostic({ preserveSelection = false } = {}) {
   }
   els.latencyBaseFrameValue.textContent = "—";
   els.latencySelectedOffsetValue.textContent = formatSignedFrameOffset(selectedLatencyFrameOffset);
+  els.latencyOffsetCurrentValue.textContent = formatSignedFrameOffset(selectedLatencyFrameOffset);
   els.latencyDisplayedFrameValue.textContent = "—";
   els.latencyDisplayedElapsedValue.textContent = "—";
   els.latencyApproxMsValue.textContent = "0 ms";
@@ -1352,13 +1381,19 @@ for (const button of els.latencyOffsetButtons) {
   button.addEventListener("click", () => {
     const offset = Number(button.dataset.latencyOffset);
     if (!Number.isInteger(offset) || button.disabled) return;
-    selectedLatencyFrameOffset = offset;
-    latencyComparisonMode = offset === 0 ? "original" : "compensated";
-    updateLatencyDiagnosticPanel();
-    renderRawSkeletonForCurrentTime();
-    if (!els.replayVideo.paused) startSkeletonRenderLoop();
+    setSelectedLatencyFrameOffset(offset);
   });
 }
+
+els.latencyOffsetDecreaseBtn.addEventListener("click", () => {
+  if (els.latencyOffsetDecreaseBtn.disabled) return;
+  setSelectedLatencyFrameOffset(selectedLatencyFrameOffset - 1);
+});
+
+els.latencyOffsetIncreaseBtn.addEventListener("click", () => {
+  if (els.latencyOffsetIncreaseBtn.disabled) return;
+  setSelectedLatencyFrameOffset(selectedLatencyFrameOffset + 1);
+});
 
 els.latencyOriginalBtn.addEventListener("click", () => {
   if (els.latencyOriginalBtn.disabled) return;

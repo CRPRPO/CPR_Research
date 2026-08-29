@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本機回播模式｜CPR Research System V2.3.4.1</title>
-  <link rel="stylesheet" href="style.css?v=20260829-v2341" />
+  <title>本機回播模式｜CPR Research System V2.3.4.2</title>
+  <link rel="stylesheet" href="style.css?v=20260829-v2342" />
 </head>
 <body>
   <main class="app-shell replay-shell">
     <header class="topbar">
       <div>
         <a class="back-link" href="index.html">← 回首頁</a>
-        <p class="eyebrow">模式二｜CPR Research System V2.3.4.1</p>
+        <p class="eyebrow">模式二｜CPR Research System V2.3.4.2</p>
         <h1>本機回播模式</h1>
       </div>
-      <div class="version-pill">V2.3.4.1｜Latency Diagnostic Local-only</div>
+      <div class="version-pill">V2.3.4.2｜Extended Latency Diagnostic Local-only</div>
     </header>
 
     <section class="replay-layout">
@@ -115,7 +115,7 @@
         <section class="panel replay-info-panel replay-latency-panel" aria-label="播放與延遲診斷">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.4.1 Latency Diagnostic</p>
+              <p class="eyebrow">V2.3.4.2 Extended Latency Diagnostic</p>
               <h2>播放與 Landmark 延遲診斷</h2>
             </div>
             <div class="validation-badge" id="latencyDiagnosticBadge" data-state="idle">等待影片與 CSV</div>
@@ -143,16 +143,29 @@
             <p class="latency-mini-note">有 CSV 時會跳到相鄰的 <code>elapsed_sec</code> 資料列；未載入 CSV 時才以約 1/30 秒移動。這是診斷用時間步進，不宣稱等同影片編碼器的精確 video frame。</p>
           </div>
 
-          <div class="latency-control-block">
+          <div class="latency-control-block latency-offset-control-block">
             <div class="latency-control-label">Landmark Frame 補償</div>
-            <div class="latency-button-row latency-offset-row" aria-label="Landmark frame 補償">
-              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="-1" disabled>-1 Frame</button>
-              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="0" disabled>0 Frame</button>
-              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="1" disabled>+1 Frame</button>
-              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="2" disabled>+2 Frame</button>
-              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="3" disabled>+3 Frame</button>
+
+            <div class="latency-offset-stepper" aria-label="Landmark frame 微調">
+              <button id="latencyOffsetDecreaseBtn" class="secondary-btn latency-offset-step-btn" type="button" disabled aria-label="減少一個 Landmark Frame">−1</button>
+              <div class="latency-offset-current" aria-live="polite">
+                <strong id="latencyOffsetCurrentValue">0 Frame</strong>
+                <span id="latencyOffsetCurrentMs">約 0 ms</span>
+              </div>
+              <button id="latencyOffsetIncreaseBtn" class="secondary-btn latency-offset-step-btn" type="button" disabled aria-label="增加一個 Landmark Frame">+1</button>
             </div>
-            <p class="latency-mini-note">「+1 Frame」表示影片時間不動，但改畫 CSV 下一筆 landmark；+2、+3 依此類推。0 Frame 永遠代表 V2.3.2 的原始同步。</p>
+
+            <div class="latency-quick-label">快速選擇</div>
+            <div class="latency-button-row latency-offset-row" aria-label="Landmark frame 快速補償">
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="0" disabled>0</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="1" disabled>+1</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="2" disabled>+2</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="3" disabled>+3</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="4" disabled>+4</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="6" disabled>+6</button>
+              <button class="secondary-btn latency-offset-btn" type="button" data-latency-offset="8" disabled>+8</button>
+            </div>
+            <p class="latency-mini-note">補償範圍為 -2～+8 Frame。可用「−1 / +1」逐格微調，因此也能選到 -2、-1、+5、+7；快速按鈕則用來直接跳到常用級距。正值表示影片時間不動、改畫 CSV 後續 landmark；0 Frame 永遠代表 V2.3.2 原始同步。</p>
           </div>
 
           <div class="latency-control-block">
@@ -192,7 +205,7 @@
 
           <div class="sync-guidance-box latency-guidance-box">
             <strong>怎麼判斷</strong>
-            <span>先用 Raw CSV、0.25× 播放。若 0 Frame 明顯落後，可依序試 +1、+2、+3 Frame；找到看起來最貼合的位置後，用「原始同步 A / 補償同步 B」反覆切換確認。此功能只用於量化延遲，不會把補償值寫回研究資料。</span>
+            <span>先用 Raw CSV、0.25× 播放。若 0 Frame 明顯落後，可先依序試 +1、+2、+3、+4；若仍落後，再用 +1 微調或快速跳到 +6、+8。找到最貼合的位置後，用「原始同步 A / 補償同步 B」反覆切換確認。此功能只用於量化延遲，不會把補償值寫回研究資料。</span>
           </div>
         </section>
 
@@ -229,7 +242,7 @@
         <section class="panel replay-info-panel sync-validation-panel" aria-label="影片與 Landmarks 時間同步驗證">
           <div class="validation-heading-row">
             <div>
-              <p class="eyebrow">V2.3.4.1 Raw / EMA + Latency Diagnostic</p>
+              <p class="eyebrow">V2.3.4.2 Raw / EMA + Extended Latency Diagnostic</p>
               <h2>影片 ↔ Landmarks 時間對應</h2>
             </div>
             <div class="validation-badge" id="syncValidationBadge" data-state="idle">等待影片與 CSV</div>
@@ -301,7 +314,7 @@
           </div>
 
           <p class="validation-explain">
-            CSV 結構驗證仍沿用 V2.3.1、時間同步沿用 V2.3.2、Raw overlay 沿用 V2.3.3、Raw/EMA 與鏡像沿用 V2.3.4；V2.3.4.1 只新增播放慢速、逐格與 Landmark frame 補償診斷，不改既有原始同步演算法。
+            CSV 結構驗證仍沿用 V2.3.1、時間同步沿用 V2.3.2、Raw overlay 沿用 V2.3.3、Raw/EMA 與鏡像沿用 V2.3.4；V2.3.4.2 延伸 V2.3.4.1 的播放慢速、逐格與 Landmark frame 補償診斷，將補償範圍擴充為 -2～+8 Frame，並加入緊湊的 ±1 Frame 微調控制；不改既有原始同步演算法。
           </p>
 
           <div class="landmark-info-grid">
@@ -376,6 +389,6 @@
     </section>
   </main>
 
-  <script src="replay.js?v=20260829-v2341" defer></script>
+  <script src="replay.js?v=20260829-v2342" defer></script>
 </body>
 </html>
