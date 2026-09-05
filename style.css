@@ -1374,3 +1374,52 @@ input:focus, select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mode 1 monitor-first layout patch: preserve recording controls and make the
+   4:3 capture view the largest element on every target device. */
+@media (min-width: 1181px) {
+  .live-layout {
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(250px, 320px);
+  }
+
+  .monitor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .live-diagnostics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .live-diagnostics .inline-status-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bilateral-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Tablet portrait: diagnostics move below the monitor so the camera image
+   remains readable rather than competing for horizontal space. */
+@media (max-width: 860px) and (min-width: 721px) {
+  .monitor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .live-diagnostics .inline-status-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bilateral-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phone: use the available width for the monitor. A viewport-height cap made
+   the recording image unnecessarily small on short or landscape screens. */
+@media (max-width: 720px) {
+  .video-card.video-landscape {
+    width: 100%;
+    margin-inline: 0;
+  }
+}

@@ -3,18 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>重新分析模式｜CPR Research System V2.2.7</title>
-  <link rel="stylesheet" href="style.css?v=20260821-v227" />
+  <title>本機重新分析模式｜CPR Research System</title>
+  <link rel="stylesheet" href="style.css?v=20260901-mode3" />
 </head>
 <body>
-  <main class="placeholder-shell">
-    <a class="back-link" href="index.html">← 回首頁</a>
-    <section class="hero-card">
-      <p class="eyebrow">模式三</p>
-      <h1>重新分析模式</h1>
-      <p class="hero-text">此頁目前為預留入口。下一階段將支援選擇本機影片後重新跑 MediaPipe 分析，產生新的骨架資料。</p>
-      <a class="primary-link" href="live.html">先使用即時測試 / 錄影模式</a>
-    </section>
+  <main class="app-shell replay-shell">
+    <header class="topbar"><div><a class="back-link" href="index.html">← 回首頁</a><p class="eyebrow">模式三 V1.3｜Local-only Re-analysis / Diagnostics</p><h1>本機重新分析模式</h1></div><div class="version-pill">MediaPipe Full / MoveNet Thunder｜不覆寫原始資料</div></header>
+    <section class="replay-layout"><aside class="panel replay-control-panel"><section class="replay-input-section"><h2>1. 選擇原始影片</h2><label class="field"><span>WebM / MP4</span><input id="videoFile" type="file" accept="video/webm,video/mp4,.webm,.mp4" /></label></section><section class="replay-input-section"><h2>2. 分析設定</h2><label class="field"><span>姿勢模型</span><select id="modelSelect"><option value="mediapipe_full" selected>MediaPipe Full｜正式基線</option><option value="movenet_thunder">MoveNet Thunder｜離線比較</option></select></label><div class="control-row replay-button-row"><button id="startBtn" class="primary-btn" type="button" disabled>開始重新分析</button><button id="stopBtn" class="secondary-btn" type="button" disabled>停止分析</button><button id="replayBtn" class="secondary-btn" type="button" disabled>回放本次骨架</button></div></section><div class="info-box local-only-box"><strong>🔒 本機處理</strong><p>影片只在目前瀏覽器讀取與分析；不會上傳、不會改寫原始影片或舊 CSV。分析前會先完成模型 warm-up，避免影片先跑、骨架後開始。回放僅顯示本次模型資料與初步可評估性診斷，不執行 Mode 2 classifier。</p></div><div class="status-line" id="message">請先選擇原始影片。</div></aside>
+    <section class="replay-main-column"><div class="replay-video-stage"><div class="video-card replay-video-card" id="videoCard"><video id="video" playsinline muted preload="metadata"></video><canvas id="canvas" class="replay-skeleton-canvas"></canvas><div class="replay-skeleton-badge" id="badge">等待影片</div></div></div><section class="panel replay-info-panel"><h2>分析狀態</h2><div class="replay-info-grid"><div class="metric-card muted"><span>檔案</span><strong id="fileName">—</strong></div><div class="metric-card muted"><span>原始解析度</span><strong id="resolution">—</strong></div><div class="metric-card muted"><span>影片進度</span><strong id="progress">—</strong></div><div class="metric-card muted"><span>資料列</span><strong id="rowCount">—</strong></div><div class="metric-card muted"><span>Pose FPS</span><strong id="poseFps">—</strong></div><div class="metric-card muted"><span>平均推論</span><strong id="detectionMs">—</strong></div><div class="metric-card muted"><span>按壓頻率（估計）</span><strong id="rateBpm">估算中</strong></div></div></section><section class="panel replay-info-panel"><h2>3. 回放與下載</h2><p class="validation-explain">分析完成後可直接回放本次模型骨架，使用 <code>elapsed_sec</code> 對齊影片。回放顯示左右側初步資料品質 reason code；它不是姿勢正誤判斷。MoveNet 匯出僅限模式三離線比較，不能交給 Mode 2 classifier。</p><div class="download-grid"><button id="downloadCsvBtn" type="button" disabled>下載 landmarks.csv</button><button id="downloadMetadataBtn" type="button" disabled>下載 metadata.json</button></div></section></section></section>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.22.0/dist/tf-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.22.0/dist/tf-converter.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.22.0/dist/tf-backend-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
+  <script type="module" src="analyze.js?v=20260901-mode3-v12"></script>
 </body>
 </html>

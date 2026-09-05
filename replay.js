@@ -143,7 +143,7 @@ function getSessionBase(fileName, kind) {
     return match ? match[1] : null;
   }
   if (kind === "landmarks") {
-    const match = fileName.match(/^(.*)_landmarks\.csv$/i);
+    const match = fileName.match(/^(.*?)(?:_reanalyzed_(?:full|heavy|mediapipe_full))?_landmarks\.csv$/i);
     return match ? match[1] : null;
   }
   return null;
